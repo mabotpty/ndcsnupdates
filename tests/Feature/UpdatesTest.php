@@ -135,6 +135,77 @@ class UpdatesTest extends TestCase
         $this->assertSame($before, count($this->groupPosts()));
     }
 
+    private function photo(string $id, ?string $caption = null, ?string $album = null): void
+    {
+        $this->tg(['message' => array_filter([
+            'photo' => [['file_id' => $id.'_small'], ['file_id' => $id]],
+            'caption' => $caption,
+            'media_group_id' => $album,
+            'chat' => ['id' => 555, 'type' => 'private'],
+            'from' => ['id' => 555],
+        ])]);
+    }
+
+    private function sentTo(string $method): array
+    {
+        return Http::recorded()->filter(fn ($p) => str_contains($p[0]->url(), $method))->map(fn ($p) => $p[0]->data())->unique(fn ($d) => json_encode($d))->values()->all();
+    }
+
+    public function test_media_is_shared_to_group_and_flagged_on_site(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        User::factory()->create(['telegram_chat_id' => '555']);
+
+        // Guided flow with an album + a video.
+        $this->say('/new');
+        $this->press('new:warning');
+        $this->say('Crowd at the circle');
+        $this->say('Police on scene');
+        $this->photo('PH1', null, 'album1');
+        $this->photo('PH2', null, 'album1');
+        $this->tg(['message' => ['video' => ['file_id' => 'VID1'], 'chat' => ['id' => 555, 'type' => 'private'], 'from' => ['id' => 555]]]);
+        $this->say('/done');
+
+        $incident = Incident::where('title', 'Crowd at the circle')->firstOrFail();
+        $this->assertSame([
+            ['type' => 'photo', 'file_id' => 'PH1'], ['type' => 'photo', 'file_id' => 'PH2'], ['type' => 'video', 'file_id' => 'VID1'],
+        ], $incident->media);
+
+        $album = $this->sentTo('sendMediaGroup');
+        $this->assertCount(3, $album[0]['media']);
+        $this->assertSame('-100123', $album[0]['chat_id']);
+        $this->assertStringContainsString('Crowd at the circle', $album[0]['media'][0]['caption']);
+        $this->assertArrayNotHasKey('caption', $album[0]['media'][1]);
+
+        // Website shows only a note, never the files.
+        $this->get('/')->assertSee('Imagery available in the Telegram group')->assertDontSee('PH1');
+
+        // Single photo with a /warn caption.
+        $this->photo('PH3', '/warn Smoke seen | Near the bridge');
+        $quick = Incident::where('title', 'Smoke seen')->firstOrFail();
+        $this->assertSame([['type' => 'photo', 'file_id' => 'PH3']], $quick->media);
+        $this->assertSame('PH3', $this->sentTo('sendPhoto')[0]['photo']);
+
+        // Add more to an existing item.
+        $this->say("/media {$quick->id}");
+        $this->photo('PH4');
+        $this->say('/done');
+        $this->assertCount(2, $quick->fresh()->media);
+        $this->assertCount(2, $this->sentTo('sendPhoto'));
+    }
+
+    public function test_media_without_context_is_not_posted(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        User::factory()->create(['telegram_chat_id' => '555']);
+
+        $this->photo('LOOSE');
+        $this->assertSame([], $this->sentTo('sendPhoto'));
+        $this->assertSame(0, Incident::where('title', '!=', 'March and March Update')->count());
+    }
+
     public function test_no_group_configured_means_no_posts(): void
     {
         Http::fake();
@@ -212,6 +283,7 @@ class UpdatesTest extends TestCase
         $this->press('new:monitoring');
         $this->say('Crowd gathering');
         $this->say('About 200 people on Edwin Swales');
+        $this->say('/done');
         $this->assertDatabaseHas('incidents', ['title' => 'Crowd gathering', 'status' => 'monitoring', 'body' => 'About 200 people on Edwin Swales']);
 
         // Buttons.

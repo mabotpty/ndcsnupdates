@@ -74,6 +74,7 @@
           <article class="card item is-warning">
             <h4>{{ $i->title }}</h4>
             @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
+            @include("public._media")
             <p><span class="badge b-danger">Warning</span></p>
             <span class="when">Posted {{ $i->published_at->format('D j M, H:i') }}</span>
           </article>
@@ -91,6 +92,7 @@
           <article class="card item is-monitoring">
             <h4>{{ $i->title }}</h4>
             @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
+            @include("public._media")
             <p><span class="badge b-warning">Monitoring</span></p>
             <span class="when">Posted {{ $i->published_at->format('D j M, H:i') }}</span>
           </article>
@@ -108,6 +110,7 @@
           <article class="card item is-resolved">
             <h4>{{ $i->title }}</h4>
             @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
+            @include("public._media")
             <p><span class="badge b-success">Resolved</span></p>
             <span class="when">Resolved {{ $i->resolved_at->format('D j M, H:i') }}</span>
           </article>

@@ -274,3 +274,7 @@ main { padding: 26px 0 40px; }
   padding: 11px 22px; border-radius: 999px; box-shadow: 0 6px 16px rgba(34, 158, 217, .35);
 }
 .join .btn-tg:hover { filter: brightness(1.08); }
+
+.media-note { font-size: 13.5px; font-weight: 600; }
+.media-note a { color: #1b7fb3; }
+@media (prefers-color-scheme: dark) { .media-note a { color: #6cc4ee; } }

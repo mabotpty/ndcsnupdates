@@ -30,7 +30,13 @@ class TelegramBot
         }
 
         $message = $update['message'] ?? null;
-        if (! $message || ! isset($message['text'])) {
+        if (! $message) {
+            return;
+        }
+
+        // Photos/videos carry their text in "caption".
+        $media = $this->extractMedia($message);
+        if (! isset($message['text']) && ! $media) {
             return;
         }
 
@@ -40,7 +46,7 @@ class TelegramBot
         }
 
         $chatId = (string) $message['chat']['id'];
-        $text = trim($message['text']);
+        $text = trim($message['text'] ?? $message['caption'] ?? '');
 
         if (preg_match('#^/link(?:@\w+)?\s+(\S+)#i', $text, $m)) {
             $this->link($chatId, $m[1]);
@@ -55,6 +61,12 @@ class TelegramBot
             return;
         }
 
+        if ($media) {
+            $this->mediaMessage($user, $chatId, $text, $media, $message['media_group_id'] ?? null);
+
+            return;
+        }
+
         if (str_starts_with($text, '/')) {
             $this->command($user, $chatId, $text);
 
@@ -62,6 +74,66 @@ class TelegramBot
         }
 
         $this->conversation($user, $chatId, $text);
+    }
+
+    // -------------------------------------------------------------------- media
+
+    /** @return array{type: string, file_id: string}|null */
+    private function extractMedia(array $message): ?array
+    {
+        if (! empty($message['photo'])) {
+            // Telegram sends several sizes; the last is the largest.
+            return ['type' => 'photo', 'file_id' => end($message['photo'])['file_id']];
+        }
+        if (! empty($message['video']['file_id'])) {
+            return ['type' => 'video', 'file_id' => $message['video']['file_id']];
+        }
+
+        return null;
+    }
+
+    private function mediaMessage(User $user, string $chatId, string $caption, array $item, ?string $albumId): void
+    {
+        $state = Cache::get($this->stateKey($chatId));
+
+        if ($state && in_array($state['step'], ['media', 'media_existing'], true)) {
+            // Album items arrive as simultaneous requests, so serialise the read-modify-write.
+            Cache::lock('tg:lock:'.$chatId, 5)->block(3, function () use ($chatId, $item) {
+                $state = Cache::get($this->stateKey($chatId));
+                if ($state && count($state['media']) < 10) {
+                    $state['media'][] = $item;
+                    Cache::put($this->stateKey($chatId), $state, now()->addMinutes(30));
+                }
+            });
+
+            if (! $albumId || Cache::add("tg:ack:{$chatId}:{$albumId}", 1, 60)) {
+                $this->send($chatId, '📎 Attached. Send more (up to 10), or /done to post.');
+            }
+
+            return;
+        }
+
+        if (preg_match('#^/(warn|monitor)(?:@\w+)?\s+(.+)$#is', $caption, $m)) {
+            [$title, $body] = $this->split($m[2], 2);
+            $this->createIncident($user, $chatId, strtolower($m[1]) === 'warn' ? 'warning' : 'monitoring', $title, $body, [$item]);
+
+            return;
+        }
+
+        $this->send($chatId, "📎 To post media: use /new and send photos/videos when asked, add to an existing item with <code>/media ID</code>, or send <b>one</b> photo/video with the caption <code>/warn Title | details</code>.");
+    }
+
+    private function startMediaForExisting(string $chatId, string $args): void
+    {
+        $incident = ctype_digit($args) ? Incident::find((int) $args) : null;
+        if (! $incident) {
+            $this->send($chatId, 'Usage: <code>/media ID</code> (see /list for IDs), then send the photos/videos.');
+
+            return;
+        }
+
+        Cache::put($this->stateKey($chatId), ['step' => 'media_existing', 'incident' => $incident->id, 'media' => []], now()->addMinutes(30));
+        $this->send($chatId, "📷 Send photos/videos for <b>#{$incident->id}</b> ".e($incident->title).". Send /done when finished.");
     }
 
     // ------------------------------------------------------------------ linking
@@ -105,7 +177,7 @@ class TelegramBot
         $cmd = strtolower(preg_replace('/@\w+$/', '', $cmd));
         $args = trim($args);
 
-        if ($cmd !== '/skip') {
+        if (! in_array($cmd, ['/skip', '/done'], true)) {
             // Any new command abandons a half-finished conversation.
             Cache::forget($this->stateKey($chatId));
         }
@@ -124,7 +196,8 @@ class TelegramBot
             '/sitrep' => $this->sitrep($chatId),
             '/sit' => $this->sit($chatId, $args),
             '/cancel' => $this->send($chatId, 'Cancelled.'),
-            '/skip' => $this->conversation($user, $chatId, '/skip'),
+            '/skip', '/done' => $this->conversation($user, $chatId, $cmd),
+            '/media' => $this->startMediaForExisting($chatId, $args),
             default => $this->send($chatId, "Unknown command. Send /help for the list."),
         };
     }
@@ -137,7 +210,8 @@ class TelegramBot
 /status – current level and open items
 /level – change the safety alert level
 /new – post a warning or monitoring item (guided)
-/warn <i>Title | details</i> – quick warning
+/warn <i>Title | details</i> – quick warning (attach <b>one</b> photo/video with this as its caption to include it)
+/media <i>ID</i> – add photos/videos to an existing item (shared to the group only)
 /monitor <i>Title | details</i> – quick monitoring item
 /list – open items, with Resolve / Delete buttons
 /resolve <i>ID</i> – mark an item resolved
@@ -204,9 +278,37 @@ TXT;
             return;
         }
 
-        $body = $text === '/skip' ? null : $text;
+        if ($state['step'] === 'body') {
+            $state = ['step' => 'media', 'type' => $state['type'], 'title' => $state['title'], 'body' => $text === '/skip' ? null : $text, 'media' => []];
+            Cache::put($this->stateKey($chatId), $state, now()->addMinutes(30));
+            $this->send($chatId, "📷 Now send any <b>photos or videos</b> (up to 10). They're shared to the Telegram group only, not shown on the website.\n\nSend /done when finished, or /done straight away to post without any.");
+
+            return;
+        }
+
+        if (! in_array($text, ['/done', '/skip'], true)) {
+            $this->send($chatId, 'Send photos/videos, or /done to finish. /cancel to stop.');
+
+            return;
+        }
+
         Cache::forget($this->stateKey($chatId));
-        $this->createIncident($user, $chatId, $state['type'], $state['title'], $body);
+
+        if ($state['step'] === 'media_existing') {
+            $incident = Incident::find($state['incident']);
+            if (! $incident || ! $state['media']) {
+                $this->send($chatId, 'Nothing attached.');
+
+                return;
+            }
+            $incident->update(['media' => array_slice(array_merge($incident->media ?? [], $state['media']), 0, 30)]);
+            app(Announcer::class)->mediaAdded($incident, $state['media']);
+            $this->send($chatId, '📷 '.count($state['media']).' attached to <b>#'.$incident->id.'</b> and shared to the group.');
+
+            return;
+        }
+
+        $this->createIncident($user, $chatId, $state['type'], $state['title'], $state['body'], $state['media']);
     }
 
     private function quickIncident(User $user, string $chatId, string $type, string $args): void
@@ -220,18 +322,20 @@ TXT;
         $this->createIncident($user, $chatId, $type, $title, $body);
     }
 
-    private function createIncident(User $user, string $chatId, string $type, string $title, ?string $body): void
+    private function createIncident(User $user, string $chatId, string $type, string $title, ?string $body, array $media = []): void
     {
         $incident = Incident::create([
             'title' => $title,
             'body' => $body,
+            'media' => $media ?: null,
             'status' => $type,
             'published_at' => now(),
             'source' => 'telegram',
             'created_by' => $user->name,
         ]);
 
-        $this->send($chatId, "✅ Posted as {$this->icon($type)} <b>#{$incident->id}</b> ".e($title)."\nIt's live on the site now.");
+        $this->send($chatId, "✅ Posted as {$this->icon($type)} <b>#{$incident->id}</b> ".e($title)."\nIt's live on the site now."
+            .($media ? "\n📷 ".count($media).' photo/video(s) shared to the Telegram group.' : ''));
     }
 
     private function listIncidents(string $chatId): void
@@ -496,6 +600,43 @@ TXT;
     private function stateKey(string $chatId): string
     {
         return 'tg:state:'.$chatId;
+    }
+
+    /** Photos/videos with the text as caption (sent separately if the caption would be too long). */
+    public function sendMedia(string $chatId, array $media, string $caption): void
+    {
+        $captionFits = mb_strlen($caption) <= 1024;
+
+        foreach (array_chunk($media, 10) as $n => $chunk) {
+            $cap = ($n === 0 && $captionFits) ? $caption : null;
+
+            if (count($chunk) === 1) {
+                $isVideo = $chunk[0]['type'] === 'video';
+                $this->api($isVideo ? 'sendVideo' : 'sendPhoto', array_filter([
+                    'chat_id' => $chatId,
+                    $isVideo ? 'video' : 'photo' => $chunk[0]['file_id'],
+                    'caption' => $cap,
+                    'parse_mode' => $cap ? 'HTML' : null,
+                ]));
+
+                continue;
+            }
+
+            $items = [];
+            foreach ($chunk as $i => $m) {
+                $items[] = array_filter([
+                    'type' => $m['type'] === 'video' ? 'video' : 'photo',
+                    'media' => $m['file_id'],
+                    'caption' => $i === 0 ? $cap : null,
+                    'parse_mode' => ($i === 0 && $cap) ? 'HTML' : null,
+                ]);
+            }
+            $this->api('sendMediaGroup', ['chat_id' => $chatId, 'media' => $items]);
+        }
+
+        if (! $captionFits) {
+            $this->send($chatId, $caption);
+        }
     }
 
     public function send(string $chatId, string $text, ?array $markup = null): void

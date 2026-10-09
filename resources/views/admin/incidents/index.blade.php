@@ -19,7 +19,7 @@
       <tbody>
         @forelse ($incidents as $i)
           <tr>
-            <td><div class="row-title">{{ $i->title }}</div><div class="row-sub">{{ \Illuminate\Support\Str::limit($i->body, 110) }}</div></td>
+            <td><div class="row-title">{{ $i->title }}@if (! empty($i->media)) <span title="Photos/videos in the Telegram group">📷 {{ count($i->media) }}</span>@endif</div><div class="row-sub">{{ \Illuminate\Support\Str::limit($i->body, 110) }}</div></td>
             <td><span class="badge {{ ['warning' => 'b-danger', 'monitoring' => 'b-warning', 'resolved' => 'b-success'][$i->status] }}">{{ ucfirst($i->status) }}</span></td>
             <td class="row-sub">{{ $i->published_at->format('D j M Y, H:i') }}<br>{{ $i->created_by }} · {{ $i->source }}</td>
             <td>

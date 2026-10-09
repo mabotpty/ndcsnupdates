@@ -16,11 +16,11 @@ class Incident extends Model
         'resolved' => 'Resolved',
     ];
 
-    protected $fillable = ['title', 'body', 'status', 'published_at', 'resolved_at', 'source', 'created_by'];
+    protected $fillable = ['title', 'body', 'status', 'published_at', 'resolved_at', 'source', 'created_by', 'media'];
 
     protected function casts(): array
     {
-        return ['published_at' => 'datetime', 'resolved_at' => 'datetime'];
+        return ['published_at' => 'datetime', 'resolved_at' => 'datetime', 'media' => 'array'];
     }
 
     protected static function booted(): void

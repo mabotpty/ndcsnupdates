@@ -18,7 +18,14 @@ class Announcer
 {
     public function incidentCreated(Incident $i): void
     {
-        $this->post($this->incidentText($i, $i->status === 'warning' ? '🔴 <b>WARNING</b>' : ($i->status === 'resolved' ? '✅ <b>RESOLVED</b>' : '🟡 <b>MONITORING</b>')));
+        $head = $i->status === 'warning' ? '🔴 <b>WARNING</b>' : ($i->status === 'resolved' ? '✅ <b>RESOLVED</b>' : '🟡 <b>MONITORING</b>');
+        $this->post($this->incidentText($i, $head, $i->media ? 500 : 700), $i->media ?? []);
+    }
+
+    /** Photos/videos added to an existing incident (shared to the group only). */
+    public function mediaAdded(Incident $i, array $media): void
+    {
+        $this->post('📷 <b>Imagery added</b>'."\n<b>".e($i->title)."</b>\n\n".e(url('/')), $media);
     }
 
     public function incidentStatusChanged(Incident $i): void
@@ -50,27 +57,28 @@ class Announcer
         $this->post($text."\n\nAll releases: ".e(url('/news')));
     }
 
-    private function incidentText(Incident $i, string $head): string
+    private function incidentText(Incident $i, string $head, int $bodyLimit = 700): string
     {
         $text = "{$head}\n<b>".e($i->title).'</b>';
         if ($i->body) {
-            $text .= "\n".e(mb_strimwidth($i->body, 0, 700, '…'));
+            $text .= "\n".e(mb_strimwidth($i->body, 0, $bodyLimit, '…'));
         }
 
         return $text."\n\n".e(url('/'));
     }
 
     /** Sent after the response so a slow/unavailable Telegram never delays or breaks the site. */
-    private function post(string $html): void
+    private function post(string $html, array $media = []): void
     {
         $chat = Setting::get('telegram_group_chat_id');
         if (! $chat || ! config('services.telegram.token')) {
             return;
         }
 
-        dispatch(function () use ($chat, $html) {
+        dispatch(function () use ($chat, $html, $media) {
             try {
-                app(TelegramBot::class)->send($chat, $html);
+                $bot = app(TelegramBot::class);
+                $media ? $bot->sendMedia($chat, $media, $html) : $bot->send($chat, $html);
             } catch (Throwable $e) {
                 Log::warning('Group announcement failed', ['message' => $e->getMessage()]);
             }
