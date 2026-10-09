@@ -99,6 +99,50 @@ class UpdatesTest extends TestCase
         $this->get('/')->assertDontSee('Join on Telegram');
     }
 
+    private function groupPosts(): array
+    {
+        return Http::recorded()
+            ->filter(fn ($pair) => str_contains($pair[0]->url(), 'sendMessage') && ($pair[0]['chat_id'] ?? null) === '-100123')
+            ->map(fn ($pair) => $pair[0]["text"])->unique()->values()->all();
+    }
+
+    public function test_changes_from_site_and_bot_are_announced_in_the_group(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $admin = User::factory()->create(['telegram_chat_id' => '555']);
+
+        // From the website.
+        $this->actingAs($admin)->post('/admin/incidents', ['title' => 'Web warning', 'status' => 'warning', 'body' => 'Roads blocked']);
+        $this->actingAs($admin)->post('/admin/level', ['level' => 3]);
+        $this->actingAs($admin)->post('/admin/news', ['title' => 'Web release', 'source_url' => 'https://example.com/r']);
+        $web = Incident::where('title', 'Web warning')->first();
+        $this->actingAs($admin)->post("/admin/incidents/{$web->id}/status", ['status' => 'resolved']);
+
+        // From the bot.
+        $this->say('/monitor Bot item | Seen by patrol');
+        $this->say('/news Bot release');
+
+        $posts = implode("\n---\n", $this->groupPosts());
+        foreach (['WARNING', 'Web warning', 'Roads blocked', 'Orange - Level 3', 'Web release', 'https://example.com/r', 'RESOLVED', 'MONITORING', 'Bot item', 'Seen by patrol', 'Bot release'] as $needle) {
+            $this->assertStringContainsString($needle, $posts);
+        }
+
+        // Re-saving the same level or editing text must not spam the group.
+        $before = count($this->groupPosts());
+        $this->actingAs($admin)->post('/admin/level', ['level' => 3]);
+        $this->actingAs($admin)->put("/admin/incidents/{$web->id}", ['title' => 'Web warning edited', 'status' => 'resolved']);
+        $this->assertSame($before, count($this->groupPosts()));
+    }
+
+    public function test_no_group_configured_means_no_posts(): void
+    {
+        Http::fake();
+        $admin = User::factory()->create();
+        $this->actingAs($admin)->post('/admin/incidents', ['title' => 'Quiet', 'status' => 'warning']);
+        Http::assertNothingSent();
+    }
+
     public function test_account_page_shows_link_code(): void
     {
         $user = User::factory()->create();
