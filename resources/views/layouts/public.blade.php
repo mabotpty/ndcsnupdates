@@ -41,8 +41,38 @@
   </footer>
 
   <script>
-    // Refresh the live content in place every minute (no full page flash).
     (function () {
+      var mobile = window.matchMedia('(max-width: 760px)');
+
+      // Collapsible sections (only active on phones; always open on larger screens).
+      // The choice is remembered for the visit, including across the live refresh below.
+      function store(key, val) { try { val === undefined ? sessionStorage.removeItem(key) : sessionStorage.setItem(key, val); } catch (e) {} }
+      function load(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
+
+      function applySections() {
+        document.querySelectorAll('.sec').forEach(function (s) {
+          var saved = load('sec:' + s.dataset.key);
+          var collapsed = saved === null ? s.dataset.default === 'collapsed' : saved === '1';
+          s.classList.toggle('collapsed', collapsed);
+          var t = s.querySelector('.toggle');
+          if (t) t.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
+      }
+
+      document.addEventListener('click', function (e) {
+        var t = e.target.closest ? e.target.closest('.toggle') : null;
+        if (!t || !mobile.matches) return;
+        var s = t.closest('.sec');
+        if (!s) return;
+        var collapsed = !s.classList.contains('collapsed');
+        s.classList.toggle('collapsed', collapsed);
+        t.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        store('sec:' + s.dataset.key, collapsed ? '1' : '0');
+      });
+
+      applySections();
+
+      // Refresh the live content in place every minute (no full page flash).
       var busy = false;
       setInterval(function () {
         if (busy || document.hidden) return;
@@ -52,7 +82,7 @@
           .then(function (html) {
             var doc = new DOMParser().parseFromString(html, 'text/html');
             var live = doc.getElementById('live'), stamp = doc.getElementById('updated');
-            if (live) document.getElementById('live').innerHTML = live.innerHTML;
+            if (live) { document.getElementById('live').innerHTML = live.innerHTML; applySections(); }
             if (stamp) document.getElementById('updated').textContent = stamp.textContent;
           })
           .catch(function () {})

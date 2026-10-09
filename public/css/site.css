@@ -278,3 +278,60 @@ main { padding: 26px 0 40px; }
 .media-note { font-size: 13.5px; font-weight: 600; }
 .media-note a { color: #1b7fb3; }
 @media (prefers-color-scheme: dark) { .media-note a { color: #6cc4ee; } }
+
+/* ---------- collapsible sections (mobile only) ---------- */
+.section-label button.toggle { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-align: inherit; cursor: default; }
+button.toggle { cursor: default; }
+button.col-head { border: 0; font-family: inherit; line-height: 1.2; }
+.chev { display: none; width: 18px; height: 18px; flex: none; transition: transform .2s; }
+.section-label button.toggle { letter-spacing: inherit; text-transform: inherit; font-weight: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.section-label button.toggle:focus-visible, button.col-head:focus-visible { outline: 3px solid var(--brand-2); outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  /* Safety alert first, then the Telegram bar, the sections, and the disclaimer last. */
+  #live { display: flex; flex-direction: column; }
+  #live > .top-row { order: 1; margin-bottom: 14px; }
+  #live > .join { order: 2; }
+  #live > .columns { order: 3; }
+  #live > .notice { order: 4; margin: 24px 0 0; }
+
+  .top-row { gap: 12px; }
+  .alert-card { padding: 20px 18px 20px 24px; }
+
+  /* Telegram: one slim line */
+  .join { padding: 8px 12px; margin-bottom: 14px; gap: 10px; flex-wrap: nowrap; border-left-width: 4px; }
+  .join svg { width: 24px; height: 24px; }
+  .join .join-text { flex: 1 1 auto; min-width: 0; }
+  .join strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .join span.sub { display: none; }
+  .join .btn-tg { font-size: 13px; padding: 7px 14px; white-space: nowrap; box-shadow: none; }
+
+  /* Collapsible sections */
+  .columns { gap: 10px; }
+  .sec > .toggle.col-head { display: flex; width: 100%; border-radius: 12px; padding: 12px 14px; margin-bottom: 0; justify-content: flex-start; cursor: pointer; font-size: 15px; }
+  .sec > .toggle.col-head .chev { margin-left: auto; }
+  .sec > .stack { padding-top: 10px; }
+  .chev { display: block; }
+  .sec:not(.collapsed) .chev { transform: rotate(180deg); }
+  .sec.collapsed .sec-body { display: none; }
+  .sec.collapsed > .stack { padding-top: 0; }
+
+  .legend { padding: 14px 16px; }
+  .legend .section-label { margin: 0; }
+  .legend .section-label button.toggle { width: 100%; cursor: pointer; justify-content: space-between; }
+  .legend:not(.collapsed) .section-label { margin-bottom: 10px; }
+}
+
+/* mobile ordering refinements: alert, Telegram bar, guide, sections, disclaimer */
+.btn-tg .short { display: none; }
+@media (max-width: 760px) {
+  #live > .top-row { display: contents; }
+  .top-row > .alert-card { order: 1; margin-bottom: 14px; }
+  #live > .join { order: 2; }
+  .top-row > .legend { order: 3; margin-bottom: 14px; }
+  #live > .columns { order: 4; }
+  #live > .notice { order: 5; }
+  .btn-tg .long { display: none; }
+  .btn-tg .short { display: inline; }
+  .join strong { font-size: 14.5px; }
+}

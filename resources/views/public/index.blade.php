@@ -8,7 +8,7 @@
         <strong>Get updates instantly</strong>
         <span class="sub">Join our public Telegram group for live community safety updates.</span>
       </div>
-      <a class="btn-tg" href="{{ $telegramUrl }}" target="_blank" rel="noopener noreferrer">Join on Telegram</a>
+      <a class="btn-tg" href="{{ $telegramUrl }}" target="_blank" rel="noopener noreferrer"><span class="long">Join on Telegram</span><span class="short">Join</span></a>
     </div>
   @endif
 
@@ -28,9 +28,9 @@
       <h3>{{ $current?->description }}</h3>
     </section>
 
-    <aside class="card legend" aria-label="Alert level guide">
-      <h2 class="section-label">Alert level guide</h2>
-      <ul>
+    <aside class="card legend sec collapsed" data-key="guide" data-default="collapsed" aria-label="Alert level guide">
+      <h2 class="section-label"><button type="button" class="toggle" aria-expanded="false">Alert level guide <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></h2>
+      <ul class="sec-body">
         @foreach ($levels as $l)
           <li @class(['now' => $current && $l->level === $current->level])>
             <span class="sw sw-{{ $l->colour }}"></span>
@@ -43,9 +43,9 @@
 
   <div class="columns">
     {{-- Situation report --}}
-    <section class="sitrep" aria-label="Situation report">
-      <span class="col-head ch-primary">Situation Report</span>
-      <div class="stack">
+    <section class="sec sitrep collapsed" data-key="sitrep" data-default="collapsed" aria-label="Situation report">
+      <button type="button" class="col-head ch-primary toggle" aria-expanded="false">Situation Report <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="stack sec-body">
         @forelse ($groups as $group)
           <div class="card item">
             <h4>{{ $group->title }}</h4>
@@ -67,9 +67,9 @@
     </section>
 
     {{-- Warnings --}}
-    <section aria-label="Warnings">
-      <span class="col-head ch-danger">Warnings @if ($warnings->count())<span class="count">{{ $warnings->count() }}</span>@endif</span>
-      <div class="stack">
+    <section class="sec" data-key="warnings" aria-label="Warnings">
+      <button type="button" class="col-head ch-danger toggle" aria-expanded="true">Warnings @if ($warnings->count())<span class="count">{{ $warnings->count() }}</span>@endif <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="stack sec-body">
         @forelse ($warnings as $i)
           <article class="card item is-warning">
             <h4>{{ $i->title }}</h4>
@@ -85,9 +85,9 @@
     </section>
 
     {{-- Monitoring --}}
-    <section aria-label="Monitoring and minor issues">
-      <span class="col-head ch-warning">Monitoring/Minor Issues @if ($monitoring->count())<span class="count">{{ $monitoring->count() }}</span>@endif</span>
-      <div class="stack">
+    <section class="sec" data-key="monitoring" aria-label="Monitoring and minor issues">
+      <button type="button" class="col-head ch-warning toggle" aria-expanded="true">Monitoring/Minor Issues @if ($monitoring->count())<span class="count">{{ $monitoring->count() }}</span>@endif <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="stack sec-body">
         @forelse ($monitoring as $i)
           <article class="card item is-monitoring">
             <h4>{{ $i->title }}</h4>
@@ -103,9 +103,9 @@
     </section>
 
     {{-- Resolved --}}
-    <section aria-label="Resolved">
-      <span class="col-head ch-success">Resolved</span>
-      <div class="stack">
+    <section class="sec collapsed" data-key="resolved" data-default="collapsed" aria-label="Resolved">
+      <button type="button" class="col-head ch-success toggle" aria-expanded="false">Resolved @if ($resolved->count())<span class="count">{{ $resolved->count() }}</span>@endif <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="stack sec-body">
         @forelse ($resolved as $i)
           <article class="card item is-resolved">
             <h4>{{ $i->title }}</h4>
