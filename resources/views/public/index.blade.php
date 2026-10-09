@@ -1,6 +1,17 @@
 @extends('layouts.public')
 
 @section('content')
+  @if ($telegramUrl)
+    <div class="card join">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.9 8.2-2 9.4c-.15.67-.54.83-1.1.52l-3-2.2-1.45 1.4c-.16.16-.3.3-.6.3l.2-3.05 5.55-5c.24-.2-.05-.33-.38-.13L7.2 13.5l-2.95-.92c-.64-.2-.65-.64.13-.95l11.5-4.43c.53-.2 1 .13.82.95z"/></svg>
+      <div class="join-text">
+        <strong>Get updates instantly</strong>
+        <span class="sub">Join our public Telegram group for live community safety updates.</span>
+      </div>
+      <a class="btn-tg" href="{{ $telegramUrl }}" target="_blank" rel="noopener noreferrer">Join on Telegram</a>
+    </div>
+  @endif
+
   <div class="notice" role="note">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
     <div>

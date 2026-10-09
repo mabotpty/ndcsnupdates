@@ -18,6 +18,7 @@ class DashboardController extends Controller
             'levels' => AlertLevel::orderBy('level')->get(),
             'currentLevel' => (int) Setting::get('alert_level', '0'),
             'resolvedHours' => (int) Setting::get('resolved_hours', '48'),
+            'telegramUrl' => Setting::get('telegram_group_url', 'https://t.me/ndcsncommunityupdates'),
             'open' => Incident::whereIn('status', ['warning', 'monitoring'])->newest()->get(),
             'recentResolved' => Incident::where('status', 'resolved')->newest()->limit(5)->get(),
             'newsCount' => NewsItem::count(),
@@ -45,8 +46,12 @@ class DashboardController extends Controller
 
     public function settings(Request $request): RedirectResponse
     {
-        $data = $request->validate(['resolved_hours' => 'required|integer|min:1|max:8760']);
+        $data = $request->validate([
+            'resolved_hours' => 'required|integer|min:1|max:8760',
+            'telegram_group_url' => 'nullable|url:https|max:255',
+        ]);
         Setting::put('resolved_hours', (string) $data['resolved_hours']);
+        Setting::put('telegram_group_url', $data['telegram_group_url'] ?? '');
         Setting::put('content_updated_at', now()->toIso8601String());
 
         return back()->with('status', 'Settings saved.');

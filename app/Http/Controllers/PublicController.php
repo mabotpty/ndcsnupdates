@@ -24,6 +24,7 @@ class PublicController extends Controller
             'monitoring' => Incident::where('status', 'monitoring')->newest()->get(),
             'resolved' => Incident::visibleResolved()->newest()->get(),
             'updatedAt' => $this->updatedAt(),
+            'telegramUrl' => Setting::get('telegram_group_url', 'https://t.me/ndcsncommunityupdates') ?: null,
         ]);
     }
 

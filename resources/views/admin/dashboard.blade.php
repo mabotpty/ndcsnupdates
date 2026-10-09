@@ -45,6 +45,11 @@
             <input id="rh" type="number" name="resolved_hours" value="{{ $resolvedHours }}" min="1" required>
             <p class="hint">After this, resolved items drop off the public page (they stay here).</p>
           </div>
+          <div class="field">
+            <label for="tg">Public Telegram group link</label>
+            <input id="tg" type="url" name="telegram_group_url" value="{{ $telegramUrl }}" placeholder="https://t.me/...">
+            <p class="hint">Shown as a "Join on Telegram" banner on the home page. Leave empty to hide it.</p>
+          </div>
           <button class="btn btn-primary" type="submit">Save</button>
         </form>
       </div>

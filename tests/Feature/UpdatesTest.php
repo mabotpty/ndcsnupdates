@@ -90,6 +90,15 @@ class UpdatesTest extends TestCase
         $this->assertNull($user->fresh()->telegram_chat_id);
     }
 
+    public function test_telegram_group_banner(): void
+    {
+        $this->get('/')->assertSee('https://t.me/ndcsncommunityupdates');
+
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/admin/settings', ['resolved_hours' => 48, 'telegram_group_url' => ''])->assertRedirect();
+        $this->get('/')->assertDontSee('Join on Telegram');
+    }
+
     public function test_account_page_shows_link_code(): void
     {
         $user = User::factory()->create();

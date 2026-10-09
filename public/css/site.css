@@ -258,3 +258,19 @@ main { padding: 26px 0 40px; }
   .nav, .live-dot { display: none; }
   .card { box-shadow: none; }
 }
+
+/* ---------- telegram join banner ---------- */
+.join {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 16px 22px; margin-bottom: 24px;
+  border-left: 5px solid #229ed9;
+}
+.join svg { width: 34px; height: 34px; flex: none; color: #229ed9; }
+.join .join-text { flex: 1 1 260px; }
+.join strong { display: block; font-size: 16px; }
+.join span.sub { color: var(--muted); font-size: 14px; }
+.join .btn-tg {
+  background: #229ed9; color: #fff; text-decoration: none; font-weight: 800; font-size: 15px;
+  padding: 11px 22px; border-radius: 999px; box-shadow: 0 6px 16px rgba(34, 158, 217, .35);
+}
+.join .btn-tg:hover { filter: brightness(1.08); }
