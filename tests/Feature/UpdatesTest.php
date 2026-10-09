@@ -90,6 +90,15 @@ class UpdatesTest extends TestCase
         $this->assertNull($user->fresh()->telegram_chat_id);
     }
 
+    public function test_account_page_shows_link_code(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/admin/account/telegram')->assertRedirect();
+        $code = $user->fresh()->telegram_link_code;
+
+        $this->actingAs($user)->get('/admin/account')->assertOk()->assertSee("/link {$code}");
+    }
+
     public function test_webhook_rejects_bad_secrets(): void
     {
         $this->postJson('/telegram/webhook/wrong', [])->assertNotFound();
