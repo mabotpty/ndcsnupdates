@@ -25,7 +25,7 @@
             <td>
               <div class="actions">
                 @if ($i->status !== 'resolved')
-                  <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">Resolve</button></form>
+                  <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">Resolve{{ $groupOn ? ' quietly' : '' }}</button>@if ($groupOn) <button class="btn btn-sm" type="submit" name="announce" value="1" title="Also post to the Telegram group">📣 + alert group</button>@endif</form>
                 @endif
                 <a class="btn btn-sm" href="{{ route('admin.incidents.edit', $i) }}">Edit</a>
                 <form method="post" action="{{ route('admin.incidents.destroy', $i) }}" onsubmit="return confirm('Delete this incident?')">@csrf @method('DELETE')<button class="btn btn-sm btn-danger" type="submit">Delete</button></form>

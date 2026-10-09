@@ -117,7 +117,7 @@ class UpdatesTest extends TestCase
         $this->actingAs($admin)->post('/admin/level', ['level' => 3]);
         $this->actingAs($admin)->post('/admin/news', ['title' => 'Web release', 'source_url' => 'https://example.com/r']);
         $web = Incident::where('title', 'Web warning')->first();
-        $this->actingAs($admin)->post("/admin/incidents/{$web->id}/status", ['status' => 'resolved']);
+        $this->actingAs($admin)->post("/admin/incidents/{$web->id}/status", ['status' => 'resolved', 'announce' => 1]);
 
         // From the bot.
         $this->say('/monitor Bot item | Seen by patrol');
@@ -244,6 +244,48 @@ class UpdatesTest extends TestCase
         $this->photo('LOOSE');
         $this->assertSame([], $this->sentTo('sendPhoto'));
         $this->assertSame(0, Incident::where('title', '!=', 'March and March Update')->count());
+    }
+
+    public function test_resolved_alerts_are_opt_in(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $admin = User::factory()->create(['telegram_chat_id' => '555']);
+        $mk = fn ($t) => Incident::create(['title' => $t, 'status' => 'warning']);
+        $resolved = fn () => collect($this->groupPosts())->filter(fn ($t) => str_contains($t, 'RESOLVED'))->implode('|');
+
+        // Website: quiet by default, alert when asked.
+        $a = $mk('Quiet one');
+        $b = $mk('Loud one');
+        $this->actingAs($admin)->post("/admin/incidents/{$a->id}/status", ['status' => 'resolved']);
+        $this->actingAs($admin)->post("/admin/incidents/{$b->id}/status", ['status' => 'resolved', 'announce' => 1]);
+        $this->assertSame('resolved', $a->fresh()->status);
+        $this->assertStringNotContainsString('Quiet one', $resolved());
+        $this->assertStringContainsString('Loud one', $resolved());
+
+        // Bot: the button asks first; nothing is resolved or posted until a choice is made.
+        $c = $mk('Bot quiet');
+        $d = $mk('Bot loud');
+        $this->press("inc:{$c->id}:resolved");
+        $this->assertSame('warning', $c->fresh()->status);
+        $this->assertStringContainsString('Should the Telegram group', json_encode($this->sentTo('editMessageText')));
+
+        $this->press("inc:{$c->id}:resolve_quiet");
+        $this->press("inc:{$d->id}:resolve_alert");
+        $this->assertSame('resolved', $c->fresh()->status);
+        $this->assertSame('resolved', $d->fresh()->status);
+        $this->assertStringNotContainsString('Bot quiet', $resolved());
+        $this->assertStringContainsString('Bot loud', $resolved());
+
+        // /resolve ID prompts too.
+        $e = $mk('Slash resolve');
+        $this->say("/resolve {$e->id}");
+        $this->assertSame('warning', $e->fresh()->status);
+
+        // With no group configured there's nothing to ask.
+        Setting::put('telegram_group_chat_id', null);
+        $this->say("/resolve {$e->id}");
+        $this->assertSame('resolved', $e->fresh()->status);
     }
 
     public function test_no_group_configured_means_no_posts(): void

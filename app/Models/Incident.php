@@ -16,6 +16,12 @@ class Incident extends Model
         'resolved' => 'Resolved',
     ];
 
+    /**
+     * Set before resolving an incident to also post "resolved" in the Telegram
+     * group. Not persisted; resolving is quiet unless this is true.
+     */
+    public bool $announce = false;
+
     protected $fillable = ['title', 'body', 'status', 'published_at', 'resolved_at', 'source', 'created_by', 'media'];
 
     protected function casts(): array

@@ -67,7 +67,7 @@
             </div>
             <div class="bar">
               <div class="actions">
-                <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">✓ Resolve</button></form>
+                <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">✓ Resolve{{ $groupOn ? ' quietly' : '' }}</button>@if ($groupOn) <button class="btn btn-sm" type="submit" name="announce" value="1" title="Also post to the Telegram group">📣 Resolve + alert group</button>@endif</form>
                 <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="{{ $i->status === 'warning' ? 'monitoring' : 'warning' }}"><button class="btn btn-sm" type="submit">Move to {{ $i->status === 'warning' ? 'monitoring' : 'warning' }}</button></form>
               </div>
               <a class="btn btn-sm" href="{{ route('admin.incidents.edit', $i) }}">Edit</a>

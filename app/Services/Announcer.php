@@ -30,6 +30,11 @@ class Announcer
 
     public function incidentStatusChanged(Incident $i): void
     {
+        // Resolved alerts are opt-in per incident (the person resolving chooses).
+        if ($i->status === 'resolved' && ! $i->announce) {
+            return;
+        }
+
         $head = match ($i->status) {
             'resolved' => '✅ <b>RESOLVED</b>',
             'warning' => '🔴 <b>UPDATE – now a WARNING</b>',

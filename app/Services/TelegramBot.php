@@ -434,8 +434,34 @@ TXT;
 
             return;
         }
-        $incident->update(['status' => 'resolved']);
-        $this->send($chatId, "✅ <b>#{$incident->id}</b> ".e($incident->title).' marked resolved.');
+        if ($incident->status === 'resolved') {
+            $this->send($chatId, "<b>#{$incident->id}</b> is already resolved.");
+
+            return;
+        }
+
+        if (! Setting::get('telegram_group_chat_id')) {
+            $incident->update(['status' => 'resolved']);
+            $this->send($chatId, "✅ <b>#{$incident->id}</b> ".e($incident->title).' marked resolved.');
+
+            return;
+        }
+
+        $this->send($chatId, $this->resolvePrompt($incident), $this->resolveButtons($incident));
+    }
+
+    private function resolvePrompt(Incident $i): string
+    {
+        return "✅ Resolve <b>#{$i->id}</b> ".e($i->title)."?\n\nShould the Telegram group be sent a resolved alert?";
+    }
+
+    private function resolveButtons(Incident $i): array
+    {
+        return ['inline_keyboard' => [
+            [['text' => '📣 Resolve & alert group', 'callback_data' => "inc:{$i->id}:resolve_alert"]],
+            [['text' => '🔕 Resolve quietly', 'callback_data' => "inc:{$i->id}:resolve_quiet"]],
+            [['text' => 'Cancel', 'callback_data' => "inc:{$i->id}:keep"]],
+        ]];
     }
 
     private function editIncident(string $chatId, string $args): void
@@ -617,13 +643,26 @@ TXT;
 
             return 'Kept';
         }
+        if ($action === 'resolved' && Setting::get('telegram_group_chat_id')) {
+            // Ask first: not every resolved incident needs to go to the group.
+            $edit($this->resolvePrompt($incident), $this->resolveButtons($incident));
+
+            return 'Alert the group?';
+        }
+        if (in_array($action, ['resolved', 'resolve_alert', 'resolve_quiet'], true)) {
+            if ($incident->status !== 'resolved') {
+                $incident->announce = $action === 'resolve_alert';
+                $incident->update(['status' => 'resolved']);
+            }
+            $edit("✅ <b>#{$id}</b> ".e($incident->title).' marked resolved.'
+                .($action === 'resolve_alert' ? "\n📣 Alert sent to the group." : (Setting::get('telegram_group_chat_id') ? "\n🔕 No alert sent to the group." : '')));
+
+            return 'Resolved';
+        }
         if (isset(Incident::STATUSES[$action])) {
             $incident->update(['status' => $action]);
             $incident->refresh();
-            $edit(
-                $action === 'resolved' ? "✅ <b>#{$id}</b> ".e($incident->title).' marked resolved.' : $this->incidentCard($incident),
-                $action === 'resolved' ? null : $this->incidentButtons($incident),
-            );
+            $edit($this->incidentCard($incident), $this->incidentButtons($incident));
 
             return 'Updated';
         }

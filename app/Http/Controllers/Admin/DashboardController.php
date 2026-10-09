@@ -18,6 +18,7 @@ class DashboardController extends Controller
             'levels' => AlertLevel::orderBy('level')->get(),
             'currentLevel' => (int) Setting::get('alert_level', '0'),
             'resolvedHours' => (int) Setting::get('resolved_hours', '48'),
+            'groupOn' => (bool) Setting::get('telegram_group_chat_id'),
             'telegramUrl' => Setting::get('telegram_group_url', 'https://t.me/ndcsncommunityupdates'),
             'open' => Incident::whereIn('status', ['warning', 'monitoring'])->newest()->get(),
             'recentResolved' => Incident::where('status', 'resolved')->newest()->limit(5)->get(),

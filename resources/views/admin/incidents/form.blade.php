@@ -30,6 +30,12 @@
         <p class="hint">Newest first. Changing this reorders it.</p>
       </div>
     </div>
+    @if ($groupOn)
+      <div class="field">
+        <label style="font-weight:500"><input type="checkbox" name="announce" value="1"> If this is being marked <b>Resolved</b>, also send an alert to the Telegram group</label>
+        <p class="hint">Resolving is quiet by default.</p>
+      </div>
+    @endif
     <button class="btn btn-primary" type="submit">{{ $incident->exists ? 'Save' : 'Post to site' }}</button>
     <a class="btn" href="{{ route('admin.incidents.index') }}">Cancel</a>
   </form>
