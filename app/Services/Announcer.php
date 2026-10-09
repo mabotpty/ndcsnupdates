@@ -64,6 +64,11 @@ class Announcer
             $text .= "\n".e(mb_strimwidth($i->body, 0, $bodyLimit, '…'));
         }
 
+        // Only mention the time when it was reported after the event (or backdated).
+        if ($i->published_at && $i->published_at->lt(now()->subMinutes(10))) {
+            $text .= "\n🕒 Occurred ".$i->published_at->format('D j M, H:i');
+        }
+
         return $text."\n\n".e(url('/'));
     }
 

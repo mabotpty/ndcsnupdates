@@ -8,10 +8,12 @@ use App\Models\NewsItem;
 use App\Models\ReportEntry;
 use App\Models\Setting;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Throwable;
 
 /**
  * Telegram front-end for the admin backend. Only admin users who have linked
@@ -114,8 +116,14 @@ class TelegramBot
         }
 
         if (preg_match('#^/(warn|monitor)(?:@\w+)?\s+(.+)$#is', $caption, $m)) {
-            [$title, $body] = $this->split($m[2], 2);
-            $this->createIncident($user, $chatId, strtolower($m[1]) === 'warn' ? 'warning' : 'monitoring', $title, $body, [$item]);
+            [$title, $body, $whenText] = $this->split($m[2], 3);
+            $when = $whenText ? $this->parseWhen($whenText) : null;
+            if ($whenText && ! $when) {
+                $this->send($chatId, "I couldn't read the time \"".e($whenText)."\". Nothing was posted.");
+
+                return;
+            }
+            $this->createIncident($user, $chatId, strtolower($m[1]) === 'warn' ? 'warning' : 'monitoring', $title, $body, [$item], $when);
 
             return;
         }
@@ -210,9 +218,9 @@ class TelegramBot
 /status – current level and open items
 /level – change the safety alert level
 /new – post a warning or monitoring item (guided)
-/warn <i>Title | details</i> – quick warning (attach <b>one</b> photo/video with this as its caption to include it)
+/warn <i>Title | details | time</i> – quick warning (attach <b>one</b> photo/video with this as its caption to include it)
 /media <i>ID</i> – add photos/videos to an existing item (shared to the group only)
-/monitor <i>Title | details</i> – quick monitoring item
+/monitor <i>Title | details | time</i> – quick monitoring item (time optional, e.g. 14:30)
 /list – open items, with Resolve / Delete buttons
 /resolve <i>ID</i> – mark an item resolved
 /edit <i>ID Title | details</i> – change an item's text
@@ -279,9 +287,26 @@ TXT;
         }
 
         if ($state['step'] === 'body') {
-            $state = ['step' => 'media', 'type' => $state['type'], 'title' => $state['title'], 'body' => $text === '/skip' ? null : $text, 'media' => []];
+            $state = ['step' => 'when', 'type' => $state['type'], 'title' => $state['title'], 'body' => $text === '/skip' ? null : $text];
             Cache::put($this->stateKey($chatId), $state, now()->addMinutes(30));
-            $this->send($chatId, "📷 Now send any <b>photos or videos</b> (up to 10). They're shared to the Telegram group only, not shown on the website.\n\nSend /done when finished, or /done straight away to post without any.");
+            $this->send($chatId, "🕒 <b>When did it happen?</b>\nSend a time like <code>14:30</code>, <code>yesterday 22:15</code> or <code>9 Oct 14:30</code>.\n\nOr /skip to use the current time.");
+
+            return;
+        }
+
+        if ($state['step'] === 'when') {
+            $when = null;
+            if ($text !== '/skip') {
+                $when = $this->parseWhen($text);
+                if (! $when) {
+                    $this->send($chatId, "I couldn't read that time (or it's in the future). Try <code>14:30</code>, <code>yesterday 22:15</code> or <code>9 Oct 14:30</code> — or /skip for now.");
+
+                    return;
+                }
+            }
+            $state = ['step' => 'media', 'type' => $state['type'], 'title' => $state['title'], 'body' => $state['body'], 'when' => $when?->toIso8601String(), 'media' => []];
+            Cache::put($this->stateKey($chatId), $state, now()->addMinutes(30));
+            $this->send($chatId, ($when ? '🕒 Occurred: <b>'.$when->format('D j M, H:i')."</b>\n\n" : '')."📷 Now send any <b>photos or videos</b> (up to 10). They're shared to the Telegram group only, not shown on the website.\n\nSend /done when finished, or /done straight away to post without any.");
 
             return;
         }
@@ -308,33 +333,62 @@ TXT;
             return;
         }
 
-        $this->createIncident($user, $chatId, $state['type'], $state['title'], $state['body'], $state['media']);
+        $this->createIncident($user, $chatId, $state['type'], $state['title'], $state['body'], $state['media'], $state['when'] ? Carbon::parse($state['when']) : null);
+    }
+
+    /** "14:30", "yesterday 22:15", "9 Oct 14:30"… in local time. Null if unreadable or in the future. */
+    private function parseWhen(string $text): ?Carbon
+    {
+        $text = trim($text);
+        $timeOnly = (bool) preg_match('/^\d{1,2}\s*[:h.]\s*\d{2}$/i', $text);
+        if ($timeOnly) {
+            $text = preg_replace('/\s*[h.]\s*/i', ':', $text);
+        }
+
+        try {
+            $when = Carbon::parse($text, config('app.timezone'));
+        } catch (Throwable) {
+            return null;
+        }
+
+        // Reported just after midnight about "22:15" means last night.
+        if ($timeOnly && $when->gt(now()->addMinutes(5))) {
+            $when->subDay();
+        }
+
+        return $when->gt(now()->addMinutes(5)) ? null : $when;
     }
 
     private function quickIncident(User $user, string $chatId, string $type, string $args): void
     {
         if ($args === '') {
-            $this->send($chatId, "Usage: <code>/".($type === 'warning' ? 'warn' : 'monitor')." Title | details</code>");
+            $this->send($chatId, "Usage: <code>/".($type === 'warning' ? 'warn' : 'monitor')." Title | details | time</code>\nDetails and time are optional; time defaults to now (e.g. <code>14:30</code>).");
 
             return;
         }
-        [$title, $body] = $this->split($args, 2);
-        $this->createIncident($user, $chatId, $type, $title, $body);
+        [$title, $body, $whenText] = $this->split($args, 3);
+        $when = $whenText ? $this->parseWhen($whenText) : null;
+        if ($whenText && ! $when) {
+            $this->send($chatId, "I couldn't read the time \"".e($whenText)."\" (or it's in the future). Nothing was posted. Try <code>14:30</code> or <code>yesterday 22:15</code>.");
+
+            return;
+        }
+        $this->createIncident($user, $chatId, $type, $title, $body, [], $when);
     }
 
-    private function createIncident(User $user, string $chatId, string $type, string $title, ?string $body, array $media = []): void
+    private function createIncident(User $user, string $chatId, string $type, string $title, ?string $body, array $media = [], ?Carbon $when = null): void
     {
         $incident = Incident::create([
             'title' => $title,
             'body' => $body,
             'media' => $media ?: null,
             'status' => $type,
-            'published_at' => now(),
+            'published_at' => $when ?? now(),
             'source' => 'telegram',
             'created_by' => $user->name,
         ]);
 
-        $this->send($chatId, "✅ Posted as {$this->icon($type)} <b>#{$incident->id}</b> ".e($title)."\nIt's live on the site now."
+        $this->send($chatId, "✅ Posted as {$this->icon($type)} <b>#{$incident->id}</b> ".e($title)."\n🕒 ".$incident->published_at->format('D j M, H:i')."\nIt's live on the site now."
             .($media ? "\n📷 ".count($media).' photo/video(s) shared to the Telegram group.' : ''));
     }
 

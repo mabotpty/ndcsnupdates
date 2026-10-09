@@ -162,6 +162,7 @@ class UpdatesTest extends TestCase
         $this->press('new:warning');
         $this->say('Crowd at the circle');
         $this->say('Police on scene');
+        $this->say('/skip');
         $this->photo('PH1', null, 'album1');
         $this->photo('PH2', null, 'album1');
         $this->tg(['message' => ['video' => ['file_id' => 'VID1'], 'chat' => ['id' => 555, 'type' => 'private'], 'from' => ['id' => 555]]]);
@@ -193,6 +194,45 @@ class UpdatesTest extends TestCase
         $this->say('/done');
         $this->assertCount(2, $quick->fresh()->media);
         $this->assertCount(2, $this->sentTo('sendPhoto'));
+    }
+
+    public function test_bot_asks_for_time_of_occurrence(): void
+    {
+        Http::fake();
+        $this->travelTo(now()->setTime(15, 0));
+        User::factory()->create(['telegram_chat_id' => '555']);
+
+        // Guided: a time is read, bad input re-asks, /skip means now.
+        $this->say('/new');
+        $this->press('new:warning');
+        $this->say('Gunshots heard');
+        $this->say('/skip');
+        $this->say('banana');
+        $this->say('13:30');
+        $this->say('/done');
+        $i = Incident::where('title', 'Gunshots heard')->firstOrFail();
+        $this->assertSame(now()->setTime(13, 30)->toDateTimeString(), $i->published_at->toDateTimeString());
+
+        $this->say('/new');
+        $this->press('new:monitoring');
+        $this->say('Smoke visible');
+        $this->say('/skip');
+        $this->say('/skip');
+        $this->say('/done');
+        $this->assertTrue(Incident::where('title', 'Smoke visible')->first()->published_at->diffInSeconds(now(), true) < 5);
+
+        // Quick form, third part is the time; a later-today time means yesterday.
+        $this->say('/warn Protest | Umhlanga Rocks Dr | yesterday 22:15');
+        $this->assertSame(now()->subDay()->setTime(22, 15)->toDateTimeString(), Incident::where('title', 'Protest')->first()->published_at->toDateTimeString());
+        $this->say('/warn Late report | | 23:00');
+        $this->assertSame(now()->subDay()->setTime(23, 0)->toDateTimeString(), Incident::where('title', 'Late report')->first()->published_at->toDateTimeString());
+
+        // Unreadable time in quick form posts nothing.
+        $this->say('/warn Nope | x | whenever');
+        $this->assertDatabaseMissing('incidents', ['title' => 'Nope']);
+
+        // Newest occurrence is listed first on the site (13:30 today above yesterday's).
+        $this->get('/')->assertSeeInOrder(['Gunshots heard', 'Late report']);
     }
 
     public function test_media_without_context_is_not_posted(): void
@@ -283,6 +323,7 @@ class UpdatesTest extends TestCase
         $this->press('new:monitoring');
         $this->say('Crowd gathering');
         $this->say('About 200 people on Edwin Swales');
+        $this->say('/skip');
         $this->say('/done');
         $this->assertDatabaseHas('incidents', ['title' => 'Crowd gathering', 'status' => 'monitoring', 'body' => 'About 200 people on Edwin Swales']);
 

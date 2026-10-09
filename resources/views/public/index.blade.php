@@ -76,7 +76,7 @@
             @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
             @include("public._media")
             <p><span class="badge b-danger">Warning</span></p>
-            <span class="when">Posted {{ $i->published_at->format('D j M, H:i') }}</span>
+            <span class="when">Occurred {{ $i->published_at->format('D j M, H:i') }}</span>
           </article>
         @empty
           <div class="empty">None at this time</div>
@@ -94,7 +94,7 @@
             @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
             @include("public._media")
             <p><span class="badge b-warning">Monitoring</span></p>
-            <span class="when">Posted {{ $i->published_at->format('D j M, H:i') }}</span>
+            <span class="when">Occurred {{ $i->published_at->format('D j M, H:i') }}</span>
           </article>
         @empty
           <div class="empty">None reported at this time</div>
