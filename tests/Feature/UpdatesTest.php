@@ -65,6 +65,31 @@ class UpdatesTest extends TestCase
         }
     }
 
+    public function test_only_http_links_and_security_headers(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/admin/news', ['title' => 'x', 'source_url' => 'javascript://%0Aalert(1)'])
+            ->assertSessionHasErrors('source_url');
+        $this->actingAs($user)->post('/admin/news', ['title' => 'ok', 'source_url' => 'https://example.com/a'])
+            ->assertSessionDoesntHaveErrors();
+
+        $this->get('/')->assertHeader('X-Frame-Options', 'DENY')->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Content-Security-Policy');
+    }
+
+    public function test_link_code_guessing_is_rate_limited(): void
+    {
+        Http::fake();
+        $user = User::factory()->create();
+        $user->forceFill(['telegram_link_code' => 'GOODCODE', 'telegram_link_expires_at' => now()->addMinutes(5)])->save();
+
+        foreach (range(1, 5) as $n) {
+            $this->say("/link BAD0000{$n}", 777);
+        }
+        $this->say('/link GOODCODE', 777); // correct, but the chat is now locked out
+        $this->assertNull($user->fresh()->telegram_chat_id);
+    }
+
     public function test_webhook_rejects_bad_secrets(): void
     {
         $this->postJson('/telegram/webhook/wrong', [])->assertNotFound();

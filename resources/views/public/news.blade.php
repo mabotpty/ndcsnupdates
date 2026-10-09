@@ -18,7 +18,7 @@
       <article class="card news-item">
         <h3>{{ $n->title }}</h3>
         <div class="news-meta">
-          @if ($n->source_url)
+          @if ($n->source_url && preg_match('#^https?://#i', $n->source_url))
             <span>Source: <a href="{{ $n->source_url }}" target="_blank" rel="noopener noreferrer">{{ $n->source_name ?: 'Link' }}</a></span>
           @endif
           <span>{{ $n->published_at->format('l j F Y, H:i') }}</span>

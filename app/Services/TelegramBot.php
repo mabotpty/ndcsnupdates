@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Telegram front-end for the admin backend. Only admin users who have linked
@@ -67,6 +68,15 @@ class TelegramBot
 
     private function link(string $chatId, string $code): void
     {
+        // The bot's username is public, so stop anyone guessing link codes.
+        $key = 'tg-link:'.$chatId;
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            $this->send($chatId, '⏳ Too many attempts. Try again in a few minutes.');
+
+            return;
+        }
+        RateLimiter::hit($key, 900);
+
         $user = User::where('telegram_link_code', strtoupper($code))
             ->where('telegram_link_expires_at', '>', now())
             ->first();
@@ -296,7 +306,7 @@ TXT;
         [$title, $second, $third] = $parts;
         $url = null;
         $body = $third;
-        if ($second && filter_var($second, FILTER_VALIDATE_URL)) {
+        if ($second && preg_match('#^https?://#i', $second) && filter_var($second, FILTER_VALIDATE_URL)) {
             $url = $second;
         } elseif ($second) {
             // Second part wasn't a URL, treat everything after the title as the text.

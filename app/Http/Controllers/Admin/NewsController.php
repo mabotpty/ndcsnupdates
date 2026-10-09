@@ -52,7 +52,7 @@ class NewsController extends Controller
         $data = $request->validate([
             'title' => 'required|string|max:255',
             'source_name' => 'nullable|string|max:100',
-            'source_url' => 'nullable|url|max:500',
+            'source_url' => 'nullable|url:http,https|max:500',
             'published_at' => 'nullable|date',
             'body' => 'nullable|string|max:20000',
         ]);
