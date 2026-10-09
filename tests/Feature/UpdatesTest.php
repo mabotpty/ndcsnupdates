@@ -288,6 +288,39 @@ class UpdatesTest extends TestCase
         $this->assertSame('resolved', $e->fresh()->status);
     }
 
+    public function test_releases_are_posted_in_full_in_the_agreed_format(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $admin = User::factory()->create();
+
+        $this->actingAs($admin)->post('/admin/news', [
+            'title' => 'Short release', 'source_url' => 'https://example.com/short', 'body' => "Line one & two.\n\nParagraph <b>two</b>.",
+        ]);
+        $short = $this->groupPosts();
+        $this->assertCount(1, $short);
+        $this->assertSame(
+            "📰 <b>SAPS RELEASE</b>\n<b>Short release</b>\n\nLine one &amp; two.\n\nParagraph &lt;b&gt;two&lt;/b&gt;.\n\nSource: https://example.com/short\n\nNDCSN Updates: ".url('/news'),
+            $short[0],
+        );
+
+        // A long release is split into ordered messages (each under Telegram's limit), nothing lost.
+        $long = collect(range(1, 180))->map(fn ($n) => "Update {$n}: police are monitoring the march & maintaining order.")->implode(' '); // ~10k chars
+        $this->actingAs($admin)->post('/admin/news', ['title' => 'Long release', 'source_url' => 'https://example.com/long', 'body' => $long]);
+
+        $parts = collect($this->groupPosts())->filter(fn ($t) => ! str_contains($t, 'Short release'))->values();
+        $this->assertGreaterThan(2, $parts->count());
+        $parts->each(fn ($t) => $this->assertLessThanOrEqual(4096, mb_strlen($t)));
+        $this->assertStringStartsWith("📰 <b>SAPS RELEASE</b>\n<b>Long release</b>", $parts->first());
+        $this->assertStringEndsWith("Source: https://example.com/long\n\nNDCSN Updates: ".url('/news'), $parts->last());
+        $this->assertSame(0, $parts->slice(0, -1)->filter(fn ($t) => str_contains($t, 'NDCSN Updates:'))->count());
+
+        $rebuilt = $parts->map(fn ($t) => html_entity_decode($t))->implode(' ');
+        foreach (range(1, 180) as $n) {
+            $this->assertStringContainsString("Update {$n}: police are monitoring the march & maintaining order.", $rebuilt);
+        }
+    }
+
     public function test_no_group_configured_means_no_posts(): void
     {
         Http::fake();
