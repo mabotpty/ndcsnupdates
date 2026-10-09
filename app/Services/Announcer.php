@@ -55,6 +55,16 @@ class Announcer
 
     public function newsAdded(NewsItem $n): void
     {
+        $this->post($this->newsMessages($n));
+    }
+
+    /**
+     * The Telegram messages for a release, in send order.
+     *
+     * @return list<string>
+     */
+    public function newsMessages(NewsItem $n): array
+    {
         // Alert type, title, the whole release, its source, then our website.
         $head = "📰 <b>SAPS RELEASE</b>\n<b>".e($n->title).'</b>';
 
@@ -64,7 +74,7 @@ class Announcer
         }
         $tail .= "\n\nNDCSN Updates: ".e(url('/news'));
 
-        $this->post($this->messages($head, trim((string) $n->body), $tail));
+        return $this->messages($head, trim((string) $n->body), $tail);
     }
 
     /**
