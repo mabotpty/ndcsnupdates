@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "updates", "runtimeExecutable": "php", "runtimeArgs": ["artisan", "serve", "--port=8077"], "port": 8077 }
+  ]
+}
