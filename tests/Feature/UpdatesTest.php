@@ -288,6 +288,54 @@ class UpdatesTest extends TestCase
         $this->assertSame('resolved', $e->fresh()->status);
     }
 
+    public function test_bot_publishes_releases_step_by_step(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $this->travelTo(now()->setTime(15, 0));
+        User::factory()->create(['telegram_chat_id' => '555']);
+        $sayId = fn (string $t, int $id) => $this->tg(['message' => ['message_id' => $id, 'text' => $t, 'chat' => ['id' => 555, 'type' => 'private'], 'from' => ['id' => 555]]]);
+
+        $this->say('/news');
+        $this->say('POLICE UPDATE ON THE MARCH');
+        $this->say('not a link');                       // re-asks
+        $this->assertDatabaseMissing('news_items', ['title' => 'POLICE UPDATE ON THE MARCH']);
+        $this->say('https://www.facebook.com/share/p/abc/');
+        $this->say('whenever');                          // re-asks
+        $this->say('13:30');
+
+        // Pasted text arrives as separate updates, here out of order; a part at Telegram's size limit joins straight on.
+        $first = str_repeat('a', 4096);
+        $sayId('third paragraph.', 103);
+        $sayId($first, 101);
+        $sayId('second paragraph.', 102);
+        $this->assertDatabaseMissing('news_items', ['title' => 'POLICE UPDATE ON THE MARCH']);
+        $this->say('/done');
+
+        $item = \App\Models\NewsItem::where('title', 'POLICE UPDATE ON THE MARCH')->firstOrFail();
+        $this->assertSame('https://www.facebook.com/share/p/abc/', $item->source_url);
+        $this->assertSame('facebook.com', $item->source_name);
+        $this->assertSame(now()->setTime(13, 30)->toDateTimeString(), $item->published_at->toDateTimeString());
+        $this->assertSame($first.'second paragraph.'."\n\n".'third paragraph.', $item->body);
+        $this->get('/news')->assertSee('POLICE UPDATE ON THE MARCH');
+
+        // Shared to the group in the agreed format, with the whole text and links.
+        $posts = implode("\n", $this->groupPosts());
+        $this->assertStringContainsString('SAPS RELEASE', $posts);
+        $this->assertStringContainsString('Source: https://www.facebook.com/share/p/abc/', $posts);
+
+        // Everything skippable: link, time and text are optional.
+        $this->say('/news');
+        $this->say('Bare title');
+        $this->say('/skip');
+        $this->say('/skip');
+        $this->say('/done');
+        $bare = \App\Models\NewsItem::where('title', 'Bare title')->firstOrFail();
+        $this->assertNull($bare->source_url);
+        $this->assertNull($bare->body);
+        $this->assertTrue($bare->published_at->diffInSeconds(now(), true) < 5);
+    }
+
     public function test_releases_are_posted_in_full_in_the_agreed_format(): void
     {
         Http::fake();

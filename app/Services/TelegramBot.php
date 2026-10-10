@@ -23,8 +23,13 @@ class TelegramBot
 {
     private const TYPES = ['warning' => '🔴 Warning', 'monitoring' => '🟡 Monitoring'];
 
+    /** Telegram message id of the update being handled (used to order pasted multi-part text). */
+    private ?int $messageId = null;
+
     public function handleUpdate(array $update): void
     {
+        $this->messageId = isset($update['message']['message_id']) ? (int) $update['message']['message_id'] : null;
+
         if (isset($update['callback_query'])) {
             $this->handleCallback($update['callback_query']);
 
@@ -224,7 +229,7 @@ class TelegramBot
 /list – open items, with Resolve / Delete buttons
 /resolve <i>ID</i> – mark an item resolved
 /edit <i>ID Title | details</i> – change an item's text
-/news <i>Title | source URL | text</i> – add a SAPS release
+/news – add a SAPS release step by step (or in one line: <i>/news Title | source link | text</i>)
 /sitrep – situation report entries (tap to set status)
 /sit <i>ID ok|warning|danger [text]</i> – update an entry
 /cancel – abandon what you're doing
@@ -274,6 +279,12 @@ TXT;
         $state = Cache::get($this->stateKey($chatId));
         if (! $state) {
             $this->send($chatId, 'Send /help to see what I can do.');
+
+            return;
+        }
+
+        if (str_starts_with($state['step'], 'news_')) {
+            $this->newsConversation($user, $chatId, $text, $state);
 
             return;
         }
@@ -478,11 +489,110 @@ TXT;
 
     // --------------------------------------------------------------------- news
 
+    /** Step-by-step SAPS release: title → source link → release time → full text → /done. */
+    private function newsConversation(User $user, string $chatId, string $text, array $state): void
+    {
+        $put = fn (array $s) => Cache::put($this->stateKey($chatId), $s, now()->addMinutes(30));
+
+        switch ($state['step']) {
+            case 'news_title':
+                $put(['step' => 'news_url', 'title' => $text]);
+                $this->send($chatId, 'Title: <b>'.e($text)."</b>\n\n🔗 Send the <b>source link</b> (e.g. the Facebook post), or /skip.");
+
+                return;
+
+            case 'news_url':
+                $url = null;
+                if ($text !== '/skip') {
+                    if (! preg_match('#^https?://\S+$#i', $text) || ! filter_var($text, FILTER_VALIDATE_URL)) {
+                        $this->send($chatId, "That doesn't look like a web link (it must start with http:// or https://). Send it again, or /skip.");
+
+                        return;
+                    }
+                    $url = $text;
+                }
+                $put(['step' => 'news_when', 'title' => $state['title'], 'url' => $url]);
+                $this->send($chatId, "🕒 <b>When was it released?</b>\nSend a time like <code>14:30</code>, <code>yesterday 22:15</code> or <code>9 Oct 14:30</code>.\n\nOr /skip to use the current time.");
+
+                return;
+
+            case 'news_when':
+                $when = null;
+                if ($text !== '/skip') {
+                    $when = $this->parseWhen($text);
+                    if (! $when) {
+                        $this->send($chatId, "I couldn't read that time (or it's in the future). Try <code>14:30</code>, <code>yesterday 22:15</code> or <code>9 Oct 14:30</code> — or /skip for now.");
+
+                        return;
+                    }
+                }
+                $put(['step' => 'news_body', 'title' => $state['title'], 'url' => $state['url'], 'when' => $when?->toIso8601String(), 'parts' => []]);
+                $this->send($chatId, ($when ? '🕒 Released: <b>'.$when->format('D j M, H:i')."</b>\n\n" : '')."📝 Now send the <b>full text</b> of the release. Pasting a long text is fine — if Telegram splits it into several messages they're joined in order.\n\nSend /done when you've sent it all.");
+
+                return;
+
+            case 'news_body':
+                if (! in_array($text, ['/done', '/skip'], true)) {
+                    // Pasted text arrives as separate, possibly simultaneous, updates: keep them ordered by message id.
+                    Cache::lock('tg:lock:'.$chatId, 5)->block(3, function () use ($chatId, $text, $put) {
+                        $state = Cache::get($this->stateKey($chatId));
+                        if ($state && $state['step'] === 'news_body') {
+                            $state['parts'][$this->messageId ?? count($state['parts'])] = $text;
+                            $put($state);
+                        }
+                    });
+                    if (Cache::add("tg:ack:news:{$chatId}", 1, 3)) {
+                        $this->send($chatId, '📝 Got it. Send more text, or /done to publish.');
+                    }
+
+                    return;
+                }
+
+                Cache::forget($this->stateKey($chatId));
+                $this->publishNews($chatId, $state);
+
+                return;
+        }
+    }
+
+    private function publishNews(string $chatId, array $state): void
+    {
+        $parts = $state['parts'];
+        ksort($parts);
+
+        // A part that hit Telegram's size limit was cut mid-text, so join it straight on.
+        $body = '';
+        $previous = null;
+        foreach ($parts as $part) {
+            $body .= ($previous === null ? '' : (mb_strlen($previous) >= 4000 ? '' : "\n\n")).$part;
+            $previous = $part;
+        }
+
+        $url = $state['url'];
+        $item = NewsItem::create([
+            'title' => $state['title'],
+            'source_url' => $url,
+            'source_name' => $url ? (preg_replace('/^www\./', '', (string) parse_url($url, PHP_URL_HOST)) ?: 'Source') : null,
+            'body' => $body !== '' ? $body : null,
+            'published_at' => $state['when'] ? Carbon::parse($state['when']) : now(),
+        ]);
+
+        $this->send($chatId, '📰 Release <b>#'.$item->id.'</b> published: '.e($item->title)."\n🕒 ".$item->published_at->format('D j M, H:i')
+            ."\nIt's live on the site".(Setting::get('telegram_group_chat_id') ? ' and shared to the Telegram group.' : '.'));
+    }
+
     private function quickNews(string $chatId, string $args): void
     {
+        if ($args === '') {
+            Cache::put($this->stateKey($chatId), ['step' => 'news_title'], now()->addMinutes(30));
+            $this->send($chatId, "📰 <b>New SAPS release</b>\n\nSend the <b>title</b>. /cancel to stop.\n\n<i>Tip: the one-line form also works: /news Title | source link | text</i>");
+
+            return;
+        }
+
         $parts = $this->split($args, 3);
-        if ($args === '' || count(array_filter($parts)) < 1) {
-            $this->send($chatId, "Usage: <code>/news Title | source URL | text</code>\nThe URL and text are optional.");
+        if (count(array_filter($parts)) < 1) {
+            $this->send($chatId, "Usage: <code>/news Title | source URL | text</code>, or just <code>/news</code> for step-by-step.");
 
             return;
         }
