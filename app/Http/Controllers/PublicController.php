@@ -35,6 +35,16 @@ class PublicController extends Controller
         ]);
     }
 
+    /** Every unresolved weather warning, in full. */
+    public function weatherIndex(): View
+    {
+        return view('public.weather-index', [
+            'warnings' => Incident::weather()->where('status', '!=', 'resolved')->newest()->get(),
+            'weatherLevels' => WeatherLevel::orderBy('level')->get(),
+            'updatedAt' => $this->updatedAt(),
+        ]);
+    }
+
     public function weather(Incident $incident): View
     {
         abort_unless($incident->isWeather(), 404);

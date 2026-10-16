@@ -17,7 +17,6 @@
     <div>
       <p><strong>All information is acquired from local WhatsApp traffic and security groups, Ward Councillors, SAPS, Metro, eThekwini or other sources.</strong></p>
       <p>Whilst all efforts are made to ensure it is verified, accurate, and up-to-date, we cannot guarantee 100% accuracy and accept no liability for information provided.</p>
-      <p>Latest releases from the SAPS can be found here: <a href="{{ route('news') }}">SAPS Releases</a></p>
     </div>
   </div>
 

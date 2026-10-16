@@ -13,14 +13,15 @@
 <body>
   <header class="site-header">
     <div class="wrap">
-      <p class="eyebrow">NDCSN</p>
       <h1>North Durban Community Support Network</h1>
       <h2>{{ $subtitle ?? 'North Durban and Surrounds Safety Status Updates' }}</h2>
       <div class="header-meta">
         <span><span class="live-dot"></span><span id="updated">Last updated: {{ $updatedAt?->format('l j F Y, H:i') ?? '—' }}</span></span>
-        <span>This page updates automatically every minute.</span>
+        <span>This page refreshes automatically every minute.</span>
         <nav class="nav" aria-label="Pages">
+          @php($activeWeather = \App\Models\Incident::weather()->where('status', '!=', 'resolved')->count())
           <a href="{{ route('home') }}" @if(request()->routeIs('home')) aria-current="page" @endif>Safety Status</a>
+          <a href="{{ route('weather.index') }}" @if(request()->routeIs('weather.index', 'weather')) aria-current="page" @endif>Weather Alerts @if ($activeWeather)<span class="nav-count">{{ $activeWeather }}</span>@endif</a>
           <a href="{{ route('news') }}" @if(request()->routeIs('news')) aria-current="page" @endif>SAPS Releases</a>
         </nav>
       </div>

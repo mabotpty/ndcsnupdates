@@ -98,7 +98,10 @@ a:hover { text-decoration-thickness: 2px; }
   padding: 7px 14px; border-radius: 999px; background: rgba(255, 255, 255, .12);
   border: 1px solid rgba(255, 255, 255, .18);
 }
-.nav a:hover, .nav a[aria-current] { background: rgba(255, 255, 255, .26); }
+.nav a:hover { background: rgba(255, 255, 255, .26); }
+/* The page you are on: solid white tab */
+.nav a[aria-current] { background: #fff; color: var(--brand); border-color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.nav-count { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 12px; line-height: 18px; text-align: center; }
 
 main { padding: 26px 0 40px; }
 
@@ -388,3 +391,5 @@ button.col-head { border: 0; font-family: inherit; line-height: 1.2; }
   .top-row > .top-col > .legend { margin-bottom: 12px; }
   .wx-detail { padding: 20px 18px 20px 24px; }
 }
+
+.wx-list { display: grid; gap: 18px; max-width: 900px; }

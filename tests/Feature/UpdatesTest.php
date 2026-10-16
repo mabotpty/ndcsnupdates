@@ -470,6 +470,41 @@ class UpdatesTest extends TestCase
         $this->get('/')->assertSee('No weather warnings');
     }
 
+    public function test_header_nav_and_weather_alerts_page(): void
+    {
+        // Header: no "NDCSN" eyebrow, new refresh wording, three tabs, no SAPS line in the yellow box.
+        $home = $this->get('/')->assertOk()
+            ->assertSee('This page refreshes automatically every minute.')
+            ->assertDontSee('updates automatically')
+            ->assertDontSee('class="eyebrow"', false)
+            ->assertDontSee('Latest releases from the SAPS can be found here')
+            ->assertSeeInOrder(['Safety Status', 'Weather Alerts', 'SAPS Releases']);
+        $this->assertSame(1, substr_count($home->getContent(), 'aria-current="page"'));
+        $this->assertMatchesRegularExpression('#aria-current="page" >Safety Status#', $home->getContent());
+
+        // Weather Alerts page: empty state, tab highlighted.
+        $empty = $this->get('/weather')->assertOk()->assertSee('No active weather alerts at this time.');
+        $this->assertMatchesRegularExpression('#aria-current="page" >Weather Alerts#', $empty->getContent());
+
+        // Active warnings in full (newest first); resolved ones are not listed; tab shows a count.
+        $a = $this->weather(['title' => 'Older warning', 'published_at' => now()->subHours(3), 'narrative' => 'Older narrative text.']);
+        $this->weather(['title' => 'Newer warning', 'weather_level' => 9, 'narrative' => 'Newer narrative text.']);
+        $this->weather(['title' => 'Gone warning', 'status' => 'resolved', 'resolved_at' => now()]);
+
+        $page = $this->get('/weather')->assertOk()
+            ->assertSeeInOrder(['Newer warning', 'Newer narrative text.', 'Older warning', 'Older narrative text.'])
+            ->assertSee('Level 9 of 10')->assertSee('Durban North')->assertDontSee('Gone warning');
+        $this->assertStringContainsString('<span class="nav-count">2</span>', $page->getContent());
+
+        // The single-warning page keeps the Weather Alerts tab highlighted and links back to the list.
+        $one = $this->get(route('weather', $a))->assertOk()->assertSee('All weather alerts');
+        $this->assertMatchesRegularExpression('#aria-current="page" >Weather Alerts#', $one->getContent());
+
+        // Other pages highlight their own tab.
+        $news = $this->get('/news')->assertOk();
+        $this->assertMatchesRegularExpression('#aria-current="page" >SAPS Releases#', $news->getContent());
+    }
+
     public function test_newest_warning_first_with_weather_mixed_in(): void
     {
         $this->weather(['title' => 'Weather older', 'published_at' => now()->subHours(2)]);
