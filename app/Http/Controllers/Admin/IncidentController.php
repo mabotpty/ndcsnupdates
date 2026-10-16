@@ -41,6 +41,10 @@ class IncidentController extends Controller
 
     public function edit(Incident $incident)
     {
+        if ($incident->isWeather()) {
+            return redirect()->route('admin.weather.edit', $incident);
+        }
+
         return view('admin.incidents.form', ['incident' => $incident, 'groupOn' => (bool) Setting::get('telegram_group_chat_id')]);
     }
 

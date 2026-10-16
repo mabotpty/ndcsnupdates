@@ -15,6 +15,7 @@
       <nav class="a-nav">
         <a href="{{ route('admin.dashboard') }}" @class(['on' => request()->routeIs('admin.dashboard')])>Dashboard</a>
         <a href="{{ route('admin.incidents.index') }}" @class(['on' => request()->routeIs('admin.incidents.*')])>Incidents</a>
+        <a href="{{ route('admin.weather.index') }}" @class(['on' => request()->routeIs('admin.weather.*')])>Weather</a>
         <a href="{{ route('admin.report') }}" @class(['on' => request()->routeIs('admin.report*')])>Situation Report</a>
         <a href="{{ route('admin.news.index') }}" @class(['on' => request()->routeIs('admin.news.*')])>SAPS Releases</a>
         <a href="{{ route('admin.users') }}" @class(['on' => request()->routeIs('admin.users*')])>Admins</a>

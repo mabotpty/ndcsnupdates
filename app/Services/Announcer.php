@@ -6,6 +6,7 @@ use App\Models\AlertLevel;
 use App\Models\Incident;
 use App\Models\NewsItem;
 use App\Models\Setting;
+use App\Models\WeatherLevel;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -18,6 +19,12 @@ class Announcer
 {
     public function incidentCreated(Incident $i): void
     {
+        if ($i->isWeather()) {
+            $this->post($this->weatherText($i));
+
+            return;
+        }
+
         $head = $i->status === 'warning' ? '🔴 <b>WARNING</b>' : ($i->status === 'resolved' ? '✅ <b>RESOLVED</b>' : '🟡 <b>MONITORING</b>');
         $this->post($this->incidentText($i, $head, $i->media ? 500 : 700), $i->media ?? []);
     }
@@ -127,6 +134,24 @@ class Announcer
         $parts[] = $text;
 
         return $parts;
+    }
+
+    private function weatherText(Incident $w): string
+    {
+        $level = WeatherLevel::find((int) $w->weather_level);
+
+        $text = '⛈ <b>WEATHER WARNING – Level '.(int) $w->weather_level.' of 10</b>'
+            ."\n<b>".e($w->title).'</b>';
+        if ($level) {
+            $text .= "\n".e($level->name);
+        }
+        $text .= "\n\n".e(trim($w->weather_kind.($w->area ? ' · '.$w->area : '')));
+        $text .= "\n🕒 ".$w->weather_from?->format('D j M, H:i').' → '.$w->weather_to?->format('D j M, H:i');
+        if ($w->narrative) {
+            $text .= "\n\n".e(mb_strimwidth($w->narrative, 0, 1200, '…'));
+        }
+
+        return $text."\n\nFull details: ".e(route('weather', $w));
     }
 
     private function incidentText(Incident $i, string $head, int $bodyLimit = 700): string

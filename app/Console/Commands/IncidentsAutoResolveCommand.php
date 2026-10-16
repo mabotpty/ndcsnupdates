@@ -14,19 +14,33 @@ class IncidentsAutoResolveCommand extends Command
 
     public function handle(): int
     {
+        // Weather warnings expire on their own "to" time (+1 hour), not on the age rule below.
+        $expired = Incident::weather()->where('status', '!=', 'resolved')
+            ->whereNotNull('weather_to')
+            ->where('weather_to', '<=', now()->subHour())
+            ->get();
+
+        foreach ($expired as $warning) {
+            // announce stays false: resolved quietly, nothing goes to the Telegram group.
+            $warning->update(['status' => 'resolved']);
+        }
+        if ($expired->isNotEmpty()) {
+            $this->info("Quietly resolved {$expired->count()} expired weather warning(s).");
+        }
+
         $hours = (int) Setting::get('auto_resolve_hours', '12');
         if ($hours <= 0) {
-            return self::SUCCESS; // switched off
+            return self::SUCCESS; // age rule switched off
         }
 
         // Age counts from when the item was posted to the site, so a backdated
         // "occurred at" time doesn't make a fresh item vanish immediately.
-        $stale = Incident::whereIn('status', ['warning', 'monitoring'])
+        $stale = Incident::where('type', '!=', 'weather')
+            ->whereIn('status', ['warning', 'monitoring'])
             ->where('created_at', '<=', now()->subHours($hours))
             ->get();
 
         foreach ($stale as $incident) {
-            // announce stays false: these are resolved quietly, nothing goes to the Telegram group.
             $incident->update(['status' => 'resolved']);
         }
 

@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [PublicController::class, 'index'])->name('home');
 Route::get('/news', [PublicController::class, 'news'])->name('news');
+Route::get('/weather/{incident}', [PublicController::class, 'weather'])->name('weather');
 
 // Telegram posts here. The secret in the path plus Telegram's own secret-token
 // header both have to match (see TelegramWebhookController).
@@ -24,8 +25,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
         Route::post('level', [Admin\DashboardController::class, 'setLevel'])->name('level');
         Route::put('level/{level}', [Admin\DashboardController::class, 'updateLevel'])->name('level.update');
+        Route::put('weather-level/{level}', [Admin\DashboardController::class, 'updateWeatherLevel'])->name('weather-level.update');
         Route::post('settings', [Admin\DashboardController::class, 'settings'])->name('settings');
 
+        Route::resource('weather', Admin\WeatherController::class)->except('show')->parameters(['weather' => 'incident']);
         Route::resource('incidents', Admin\IncidentController::class)->except('show');
         Route::post('incidents/{incident}/status', [Admin\IncidentController::class, 'status'])->name('incidents.status');
 

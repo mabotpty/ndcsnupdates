@@ -37,6 +37,27 @@
       </div>
 
       <div class="card panel">
+        <h2>Weather alert levels</h2>
+        <p class="hint" style="margin-top:-8px">The public weather level is the highest level among active weather warnings. Edit the wording of each level below.</p>
+        <details>
+          <summary style="cursor:pointer;font-weight:700">Edit weather level wording</summary>
+          @foreach ($weatherLevels as $l)
+            <form method="post" action="{{ route('admin.weather-level.update', $l->level) }}" class="entry" style="margin-top:12px">
+              @csrf @method('PUT')
+              <div class="inline" style="display:grid;grid-template-columns:1fr 140px;gap:10px">
+                <div class="field"><label>Name (level {{ $l->level }})</label><input type="text" name="name" value="{{ $l->name }}" required></div>
+                <div class="field"><label>Colour</label>
+                  <select name="colour">@foreach (['green', 'yellow', 'orange', 'red'] as $c)<option value="{{ $c }}" @selected($l->colour === $c)>{{ ucfirst($c) }}</option>@endforeach</select>
+                </div>
+              </div>
+              <div class="field"><label>Description</label><input type="text" name="description" value="{{ $l->description }}" required></div>
+              <button class="btn btn-sm" type="submit">Save</button>
+            </form>
+          @endforeach
+        </details>
+      </div>
+
+      <div class="card panel">
         <h2>Settings</h2>
         <form method="post" action="{{ route('admin.settings') }}">
           @csrf
@@ -75,7 +96,7 @@
                 <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">✓ Resolve{{ $groupOn ? ' quietly' : '' }}</button>@if ($groupOn) <button class="btn btn-sm" type="submit" name="announce" value="1" title="Also post to the Telegram group">📣 Resolve + alert group</button>@endif</form>
                 <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="{{ $i->status === 'warning' ? 'monitoring' : 'warning' }}"><button class="btn btn-sm" type="submit">Move to {{ $i->status === 'warning' ? 'monitoring' : 'warning' }}</button></form>
               </div>
-              <a class="btn btn-sm" href="{{ route('admin.incidents.edit', $i) }}">Edit</a>
+              <a class="btn btn-sm" href="{{ $i->isWeather() ? route('admin.weather.edit', $i) : route('admin.incidents.edit', $i) }}">Edit</a>
             </div>
           </div>
         @empty

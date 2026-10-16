@@ -22,23 +22,45 @@
   </div>
 
   <div class="top-row">
-    <section class="card alert-card lv-{{ $current?->colour ?? 'green' }}" aria-labelledby="lvl-h">
-      <h2 class="section-label" id="lvl-h">Current Safety Alert Level</h2>
-      <span class="level-pill"><i></i>{{ $current?->name }}</span>
-      <h3>{{ $current?->description }}</h3>
-    </section>
+    <div class="top-col">
+      <section class="card alert-card lv-{{ $current?->colour ?? 'green' }}" aria-labelledby="lvl-h">
+        <h2 class="section-label" id="lvl-h">Current Safety Alert Level</h2>
+        <span class="level-pill"><i></i>{{ $current?->name }}</span>
+        <h3>{{ $current?->description }}</h3>
+      </section>
 
-    <aside class="card legend sec collapsed" data-key="guide" data-default="collapsed" aria-label="Alert level guide">
-      <h2 class="section-label"><button type="button" class="toggle" aria-expanded="false">Alert level guide <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></h2>
-      <ul class="sec-body">
-        @foreach ($levels as $l)
-          <li @class(['now' => $current && $l->level === $current->level])>
-            <span class="sw sw-{{ $l->colour }}"></span>
-            <span><b>{{ $l->name }}</b> &mdash; {{ $l->description }}</span>
-          </li>
-        @endforeach
-      </ul>
-    </aside>
+      <aside class="card legend small sec collapsed" data-key="guide" data-default="collapsed" aria-label="Safety alert level guide">
+        <h2 class="section-label"><button type="button" class="toggle" aria-expanded="false">Safety alert level guide <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></h2>
+        <ul class="sec-body">
+          @foreach ($levels as $l)
+            <li @class(['now' => $current && $l->level === $current->level])>
+              <span class="sw sw-{{ $l->colour }}"></span>
+              <span><b>{{ $l->name }}</b> &mdash; {{ $l->description }}</span>
+            </li>
+          @endforeach
+        </ul>
+      </aside>
+    </div>
+
+    <div class="top-col">
+      <section class="card alert-card lv-{{ $weatherCurrent?->colour ?? 'green' }}" aria-labelledby="wx-h">
+        <h2 class="section-label" id="wx-h">Current Weather Alert Level</h2>
+        <span class="level-pill"><i></i>{{ $weatherCurrent?->name }}</span>
+        <h3>{{ $weatherCurrent?->description }}</h3>
+      </section>
+
+      <aside class="card legend small sec collapsed" data-key="wguide" data-default="collapsed" aria-label="Weather alert level guide">
+        <h2 class="section-label"><button type="button" class="toggle" aria-expanded="false">Weather alert level guide <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></h2>
+        <ul class="sec-body">
+          @foreach ($weatherLevels as $l)
+            <li @class(['now' => $weatherCurrent && $l->level === $weatherCurrent->level])>
+              <span class="sw sw-{{ $l->colour }}"></span>
+              <span><b>{{ $l->name }}</b> &mdash; {{ $l->description }}</span>
+            </li>
+          @endforeach
+        </ul>
+      </aside>
+    </div>
   </div>
 
   <div class="columns">
@@ -71,13 +93,7 @@
       <button type="button" class="col-head ch-danger toggle" aria-expanded="true">Warnings @if ($warnings->count())<span class="count">{{ $warnings->count() }}</span>@endif <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="stack sec-body">
         @forelse ($warnings as $i)
-          <article class="card item is-warning">
-            <h4>{{ $i->title }}</h4>
-            @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
-            @include("public._media")
-            <p><span class="badge b-danger">Warning</span></p>
-            <span class="when">Occurred {{ $i->published_at->format('D j M, H:i') }}</span>
-          </article>
+          @include('public._card', ['i' => $i, 'kind' => 'warning'])
         @empty
           <div class="empty">None at this time</div>
         @endforelse
@@ -89,13 +105,7 @@
       <button type="button" class="col-head ch-warning toggle" aria-expanded="true">Monitoring/Minor Issues @if ($monitoring->count())<span class="count">{{ $monitoring->count() }}</span>@endif <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="stack sec-body">
         @forelse ($monitoring as $i)
-          <article class="card item is-monitoring">
-            <h4>{{ $i->title }}</h4>
-            @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
-            @include("public._media")
-            <p><span class="badge b-warning">Monitoring</span></p>
-            <span class="when">Occurred {{ $i->published_at->format('D j M, H:i') }}</span>
-          </article>
+          @include('public._card', ['i' => $i, 'kind' => 'monitoring'])
         @empty
           <div class="empty">None reported at this time</div>
         @endforelse
@@ -107,13 +117,7 @@
       <button type="button" class="col-head ch-success toggle" aria-expanded="false">Resolved @if ($resolved->count())<span class="count">{{ $resolved->count() }}</span>@endif <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="stack sec-body">
         @forelse ($resolved as $i)
-          <article class="card item is-resolved">
-            <h4>{{ $i->title }}</h4>
-            @if ($i->body)<p>{!! nl2br(e($i->body)) !!}</p>@endif
-            @include("public._media")
-            <p><span class="badge b-success">Resolved</span></p>
-            <span class="when">Resolved {{ $i->resolved_at->format('D j M, H:i') }}</span>
-          </article>
+          @include('public._card', ['i' => $i, 'kind' => 'resolved'])
         @empty
           <div class="empty">None reported at this time</div>
         @endforelse

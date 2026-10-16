@@ -19,7 +19,7 @@
       <tbody>
         @forelse ($incidents as $i)
           <tr>
-            <td><div class="row-title">{{ $i->title }}@if (! empty($i->media)) <span title="Photos/videos in the Telegram group">📷 {{ count($i->media) }}</span>@endif</div><div class="row-sub">{{ \Illuminate\Support\Str::limit($i->body, 110) }}</div></td>
+            <td><div class="row-title">@if ($i->isWeather())⛈ @endif{{ $i->title }}@if (! empty($i->media)) <span title="Photos/videos in the Telegram group">📷 {{ count($i->media) }}</span>@endif</div><div class="row-sub">{{ \Illuminate\Support\Str::limit($i->body, 110) }}</div></td>
             <td><span class="badge {{ ['warning' => 'b-danger', 'monitoring' => 'b-warning', 'resolved' => 'b-success'][$i->status] }}">{{ ucfirst($i->status) }}</span></td>
             <td class="row-sub">{{ $i->published_at->format('D j M Y, H:i') }}<br>{{ $i->created_by }} · {{ $i->source }}</td>
             <td>
@@ -27,7 +27,7 @@
                 @if ($i->status !== 'resolved')
                   <form method="post" action="{{ route('admin.incidents.status', $i) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">Resolve{{ $groupOn ? ' quietly' : '' }}</button>@if ($groupOn) <button class="btn btn-sm" type="submit" name="announce" value="1" title="Also post to the Telegram group">📣 + alert group</button>@endif</form>
                 @endif
-                <a class="btn btn-sm" href="{{ route('admin.incidents.edit', $i) }}">Edit</a>
+                <a class="btn btn-sm" href="{{ $i->isWeather() ? route('admin.weather.edit', $i) : route('admin.incidents.edit', $i) }}">Edit</a>
                 <form method="post" action="{{ route('admin.incidents.destroy', $i) }}" onsubmit="return confirm('Delete this incident?')">@csrf @method('DELETE')<button class="btn btn-sm btn-danger" type="submit">Delete</button></form>
               </div>
             </td>

@@ -8,6 +8,7 @@ use App\Models\NewsItem;
 use App\Models\ReportEntry;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\WeatherLevel;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -200,6 +201,7 @@ class TelegramBot
             '/status' => $this->status($chatId),
             '/level' => $this->levelPicker($chatId),
             '/new' => $this->newPicker($chatId),
+            '/weather' => $this->startWeather($chatId),
             '/warn' => $this->quickIncident($user, $chatId, 'warning', $args),
             '/monitor' => $this->quickIncident($user, $chatId, 'monitoring', $args),
             '/list' => $this->listIncidents($chatId),
@@ -222,7 +224,8 @@ class TelegramBot
 
 /status – current level and open items
 /level – change the safety alert level
-/new – post a warning or monitoring item (guided)
+/new – post a warning, monitoring item or weather warning (guided)
+/weather – post a weather warning (guided)
 /warn <i>Title | details | time</i> – quick warning (attach <b>one</b> photo/video with this as its caption to include it)
 /media <i>ID</i> – add photos/videos to an existing item (shared to the group only)
 /monitor <i>Title | details | time</i> – quick monitoring item (time optional, e.g. 14:30)
@@ -268,10 +271,212 @@ TXT;
 
     private function newPicker(string $chatId): void
     {
-        $this->send($chatId, '<b>What are you posting?</b>', ['inline_keyboard' => [[
-            ['text' => self::TYPES['warning'], 'callback_data' => 'new:warning'],
-            ['text' => self::TYPES['monitoring'], 'callback_data' => 'new:monitoring'],
-        ]]]);
+        $this->send($chatId, '<b>What are you posting?</b>', ['inline_keyboard' => [
+            [
+                ['text' => self::TYPES['warning'], 'callback_data' => 'new:warning'],
+                ['text' => self::TYPES['monitoring'], 'callback_data' => 'new:monitoring'],
+            ],
+            [['text' => '⛈ Weather warning', 'callback_data' => 'new:weather']],
+        ]]);
+    }
+
+    // ------------------------------------------------------------------ weather
+
+    private function startWeather(string $chatId, ?int $editMessageId = null): void
+    {
+        Cache::put($this->stateKey($chatId), ['step' => 'wx_title'], now()->addMinutes(30));
+        $text = "⛈ <b>New weather warning</b>\n\nSend a <b>short title</b> (e.g. <i>Heavy rain and flooding expected</i>). /cancel to stop.";
+
+        $editMessageId
+            ? $this->api('editMessageText', ['chat_id' => $chatId, 'message_id' => $editMessageId, 'parse_mode' => 'HTML', 'text' => $text])
+            : $this->send($chatId, $text);
+    }
+
+    private function weatherPrompt(string $chatId, string $step, array $state = []): void
+    {
+        switch ($step) {
+            case 'wx_type':
+                $rows = array_chunk(array_map(
+                    fn ($k, $n) => ['text' => $k, 'callback_data' => 'wxt:'.$n],
+                    Incident::WEATHER_KINDS,
+                    array_keys(Incident::WEATHER_KINDS),
+                ), 2);
+                $this->send($chatId, "<b>Type of weather?</b>\nTap one, or type your own.", ['inline_keyboard' => $rows]);
+                break;
+
+            case 'wx_level':
+                $levels = WeatherLevel::where('level', '>', 0)->orderBy('level')->get();
+                $list = $levels->map(fn ($l) => "<b>{$l->level}</b> – ".e($l->name).' ('.e($l->description).')')->implode("\n");
+                $rows = array_chunk($levels->map(fn ($l) => ['text' => (string) $l->level, 'callback_data' => 'wxl:'.$l->level])->all(), 5);
+                $this->send($chatId, "<b>Alert level (1–10)?</b>\n\n{$list}", ['inline_keyboard' => $rows]);
+                break;
+
+            case 'wx_area':
+                $this->send($chatId, "📍 <b>Which area?</b> (e.g. <i>Durban North, Umhlanga</i>)\nOr /skip.");
+                break;
+
+            case 'wx_from':
+                $this->send($chatId, "🕒 <b>Valid FROM?</b>\nSend a date/time like <code>14:30</code>, <code>tomorrow 06:00</code> or <code>17 Oct 06:00</code>.\nOr /skip for right now.");
+                break;
+
+            case 'wx_to':
+                $this->send($chatId, "🕒 <b>Valid UNTIL?</b>\nSend a date/time like <code>22:00</code>, <code>tomorrow 06:00</code> or <code>17 Oct 18:00</code>.\nThe warning resolves itself quietly 1 hour after this.");
+                break;
+
+            case 'wx_narrative':
+                $this->send($chatId, "📝 Now send the <b>detailed narrative</b>. Long text is fine — several messages are joined in order.\n\nSend /done when finished (or /done straight away for none).");
+                break;
+        }
+    }
+
+    private function weatherConversation(User $user, string $chatId, string $text, array $state): void
+    {
+        $put = fn (array $s) => Cache::put($this->stateKey($chatId), $s, now()->addMinutes(30));
+        $go = function (string $step, array $changes = []) use ($chatId, $state, $put) {
+            $state = array_merge($state, $changes, ['step' => $step]);
+            $put($state);
+            $this->weatherPrompt($chatId, $step, $state);
+        };
+
+        switch ($state['step']) {
+            case 'wx_title':
+                $go('wx_type', ['title' => mb_strimwidth($text, 0, 120)]);
+
+                return;
+
+            case 'wx_type':
+                $go('wx_level', ['kind' => mb_strimwidth($text, 0, 60)]);
+
+                return;
+
+            case 'wx_level':
+                if (! ctype_digit($text) || (int) $text < 1 || (int) $text > 10) {
+                    $this->send($chatId, 'Send a number from 1 to 10, or tap one of the buttons above.');
+
+                    return;
+                }
+                $go('wx_area', ['level' => (int) $text]);
+
+                return;
+
+            case 'wx_area':
+                $go('wx_from', ['area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 255)]);
+
+                return;
+
+            case 'wx_from':
+                $from = $text === '/skip' ? now() : $this->parseFlexible($text);
+                if (! $from) {
+                    $this->send($chatId, "I couldn't read that. Try <code>14:30</code>, <code>tomorrow 06:00</code> or <code>17 Oct 06:00</code> — or /skip for now.");
+
+                    return;
+                }
+                $go('wx_to', ['from' => $from->toIso8601String()]);
+
+                return;
+
+            case 'wx_to':
+                $from = Carbon::parse($state['from']);
+                $to = $this->parseFlexible($text, $from);
+                if (! $to || $to->lte($from)) {
+                    $this->send($chatId, "I couldn't read that, or it isn't after the start (".$from->format('D j M, H:i').'). Try <code>22:00</code> or <code>tomorrow 06:00</code>.');
+
+                    return;
+                }
+                $go('wx_narrative', ['to' => $to->toIso8601String(), 'parts' => []]);
+
+                return;
+
+            case 'wx_narrative':
+                if (! in_array($text, ['/done', '/skip'], true)) {
+                    $this->collectText($chatId, 'wx_narrative', $text);
+
+                    return;
+                }
+
+                Cache::forget($this->stateKey($chatId));
+                $this->createWeather($user, $chatId, $state);
+
+                return;
+        }
+    }
+
+    private function createWeather(User $user, string $chatId, array $state): void
+    {
+        $narrative = $this->joinParts($state['parts'] ?? []);
+
+        $w = Incident::create([
+            'type' => 'weather',
+            'status' => 'warning',
+            'title' => $state['title'],
+            'weather_kind' => $state['kind'],
+            'weather_level' => $state['level'],
+            'area' => $state['area'],
+            'weather_from' => Carbon::parse($state['from']),
+            'weather_to' => Carbon::parse($state['to']),
+            'narrative' => $narrative !== '' ? $narrative : null,
+            'published_at' => now(),
+            'source' => 'telegram',
+            'created_by' => $user->name,
+        ]);
+
+        $this->send($chatId, "✅ Weather warning <b>#{$w->id}</b> posted: ".e($w->title)
+            ."\nLevel {$w->weather_level} · ".e($w->weather_kind)
+            ."\n🕒 ".$w->weather_from->format('D j M, H:i').' → '.$w->weather_to->format('D j M, H:i')
+            ."\nIt's live on the site and resolves itself 1 hour after it ends.");
+    }
+
+    /** Like parseWhen, but future times are fine, and a bare time earlier than $after rolls to the next day. */
+    private function parseFlexible(string $text, ?Carbon $after = null): ?Carbon
+    {
+        $text = trim($text);
+        $timeOnly = (bool) preg_match('/^\d{1,2}\s*[:h.]\s*\d{2}$/i', $text);
+        if ($timeOnly) {
+            $text = preg_replace('/\s*[h.]\s*/i', ':', $text);
+        }
+
+        try {
+            $when = Carbon::parse($text, config('app.timezone'));
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($timeOnly && $after && $when->lte($after)) {
+            $when->addDay();
+        }
+
+        return $when;
+    }
+
+    /** Pasted text arrives as separate, possibly simultaneous, updates: keep them ordered by message id. */
+    private function collectText(string $chatId, string $step, string $text): void
+    {
+        Cache::lock('tg:lock:'.$chatId, 5)->block(3, function () use ($chatId, $step, $text) {
+            $state = Cache::get($this->stateKey($chatId));
+            if ($state && $state['step'] === $step) {
+                $state['parts'][$this->messageId ?? count($state['parts'])] = $text;
+                Cache::put($this->stateKey($chatId), $state, now()->addMinutes(30));
+            }
+        });
+
+        if (Cache::add("tg:ack:text:{$chatId}", 1, 3)) {
+            $this->send($chatId, '📝 Got it. Send more text, or /done to finish.');
+        }
+    }
+
+    /** A part that hit Telegram's size limit was cut mid-text, so it is joined straight on. */
+    private function joinParts(array $parts): string
+    {
+        ksort($parts);
+
+        $body = '';
+        $previous = null;
+        foreach ($parts as $part) {
+            $body .= ($previous === null ? '' : (mb_strlen($previous) >= 4000 ? '' : "\n\n")).$part;
+            $previous = $part;
+        }
+
+        return $body;
     }
 
     private function conversation(User $user, string $chatId, string $text): void
@@ -279,6 +484,12 @@ TXT;
         $state = Cache::get($this->stateKey($chatId));
         if (! $state) {
             $this->send($chatId, 'Send /help to see what I can do.');
+
+            return;
+        }
+
+        if (str_starts_with($state['step'], 'wx_')) {
+            $this->weatherConversation($user, $chatId, $text, $state);
 
             return;
         }
@@ -419,7 +630,8 @@ TXT;
 
     private function incidentCard(Incident $i): string
     {
-        return $this->icon($i->status)." <b>#{$i->id}</b> ".e($i->title)
+        return ($i->isWeather() ? '⛈' : $this->icon($i->status))." <b>#{$i->id}</b> ".e($i->title)
+            .($i->isWeather() ? "\nLevel {$i->weather_level} · ".e($i->weather_kind).' · until '.$i->weather_to?->format('D j M, H:i') : '')
             .($i->body ? "\n".e(mb_strimwidth($i->body, 0, 300, '…')) : '')
             ."\n<i>".$i->published_at->format('D j M, H:i').'</i>';
     }
@@ -430,11 +642,12 @@ TXT;
             ? ['text' => '🟡 To monitoring', 'callback_data' => "inc:{$i->id}:monitoring"]
             : ['text' => '🔴 To warning', 'callback_data' => "inc:{$i->id}:warning"];
 
-        return ['inline_keyboard' => [[
+        return ['inline_keyboard' => [array_values(array_filter([
             ['text' => '✅ Resolve', 'callback_data' => "inc:{$i->id}:resolved"],
-            $switch,
+            // Weather warnings are either active or resolved; there is no "monitoring" for them.
+            $i->isWeather() ? null : $switch,
             ['text' => '🗑 Delete', 'callback_data' => "inc:{$i->id}:delete"],
-        ]]];
+        ]))]];
     }
 
     private function resolveById(string $chatId, string $args): void
@@ -533,17 +746,7 @@ TXT;
 
             case 'news_body':
                 if (! in_array($text, ['/done', '/skip'], true)) {
-                    // Pasted text arrives as separate, possibly simultaneous, updates: keep them ordered by message id.
-                    Cache::lock('tg:lock:'.$chatId, 5)->block(3, function () use ($chatId, $text, $put) {
-                        $state = Cache::get($this->stateKey($chatId));
-                        if ($state && $state['step'] === 'news_body') {
-                            $state['parts'][$this->messageId ?? count($state['parts'])] = $text;
-                            $put($state);
-                        }
-                    });
-                    if (Cache::add("tg:ack:news:{$chatId}", 1, 3)) {
-                        $this->send($chatId, '📝 Got it. Send more text, or /done to publish.');
-                    }
+                    $this->collectText($chatId, 'news_body', $text);
 
                     return;
                 }
@@ -557,16 +760,7 @@ TXT;
 
     private function publishNews(string $chatId, array $state): void
     {
-        $parts = $state['parts'];
-        ksort($parts);
-
-        // A part that hit Telegram's size limit was cut mid-text, so join it straight on.
-        $body = '';
-        $previous = null;
-        foreach ($parts as $part) {
-            $body .= ($previous === null ? '' : (mb_strlen($previous) >= 4000 ? '' : "\n\n")).$part;
-            $previous = $part;
-        }
+        $body = $this->joinParts($state['parts']);
 
         $url = $state['url'];
         $item = NewsItem::create([
@@ -690,8 +884,36 @@ TXT;
                 }
                 break;
 
+            case 'wxt':
+            case 'wxl':
+                $state = Cache::get($this->stateKey($chatId));
+                $isType = $parts[0] === 'wxt';
+                if ($state && $state['step'] === ($isType ? 'wx_type' : 'wx_level')) {
+                    $value = $isType ? (Incident::WEATHER_KINDS[(int) ($parts[1] ?? -1)] ?? null) : ((int) ($parts[1] ?? 0) ?: null);
+                    if ($value !== null) {
+                        $this->api('editMessageText', [
+                            'chat_id' => $chatId, 'message_id' => $messageId, 'parse_mode' => 'HTML',
+                            'text' => ($isType ? 'Type: ' : 'Level: ').'<b>'.e((string) $value).'</b>',
+                        ]);
+
+                        if ($isType && $value === 'Other') {
+                            $this->send($chatId, 'Type the type of weather (e.g. <i>Waterspout</i>).');
+                        } else {
+                            $next = $isType ? 'wx_level' : 'wx_area';
+                            $state = array_merge($state, ['step' => $next], $isType ? ['kind' => $value] : ['level' => $value]);
+                            Cache::put($this->stateKey($chatId), $state, now()->addMinutes(30));
+                            $this->weatherPrompt($chatId, $next, $state);
+                        }
+                    }
+                }
+                break;
+
             case 'new':
                 $type = $parts[1] ?? '';
+                if ($type === 'weather') {
+                    $this->startWeather($chatId, $messageId);
+                    break;
+                }
                 if (isset(self::TYPES[$type])) {
                     Cache::put($this->stateKey($chatId), ['step' => 'title', 'type' => $type], now()->addMinutes(30));
                     $this->api('editMessageText', [

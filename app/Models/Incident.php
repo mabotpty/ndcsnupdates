@@ -22,11 +22,37 @@ class Incident extends Model
      */
     public bool $announce = false;
 
-    protected $fillable = ['title', 'body', 'status', 'published_at', 'resolved_at', 'source', 'created_by', 'media'];
+    public const WEATHER_KINDS = [
+        'Heavy rain', 'Thunderstorms', 'Strong winds', 'Hail', 'Flooding',
+        'Fog', 'Extreme heat', 'Extreme cold', 'Fire danger', 'Rough seas', 'Other',
+    ];
+
+    public function isWeather(): bool
+    {
+        return $this->type === 'weather';
+    }
+
+    /** Only weather warnings (the "weather incident type"). */
+    public function scopeWeather(Builder $query): Builder
+    {
+        return $query->where('type', 'weather');
+    }
+
+    /** upcoming | active | expired, from the warning's from/to window. */
+    public function weatherPhase(): string
+    {
+        if ($this->weather_from && $this->weather_from->isFuture()) {
+            return 'upcoming';
+        }
+
+        return $this->weather_to && $this->weather_to->isPast() ? 'expired' : 'active';
+    }
+
+    protected $fillable = ['title', 'body', 'status', 'published_at', 'resolved_at', 'source', 'created_by', 'media', 'type', 'weather_kind', 'weather_level', 'area', 'weather_from', 'weather_to', 'narrative'];
 
     protected function casts(): array
     {
-        return ['published_at' => 'datetime', 'resolved_at' => 'datetime', 'media' => 'array'];
+        return ['published_at' => 'datetime', 'resolved_at' => 'datetime', 'media' => 'array', 'weather_from' => 'datetime', 'weather_to' => 'datetime'];
     }
 
     protected static function booted(): void

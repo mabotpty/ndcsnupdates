@@ -7,6 +7,7 @@ use App\Models\AlertLevel;
 use App\Models\Incident;
 use App\Models\NewsItem;
 use App\Models\Setting;
+use App\Models\WeatherLevel;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -18,6 +19,7 @@ class DashboardController extends Controller
             'levels' => AlertLevel::orderBy('level')->get(),
             'currentLevel' => (int) Setting::get('alert_level', '0'),
             'resolvedHours' => (int) Setting::get('resolved_hours', '48'),
+            'weatherLevels' => WeatherLevel::orderBy('level')->get(),
             'autoResolveHours' => (int) Setting::get('auto_resolve_hours', '12'),
             'groupOn' => (bool) Setting::get('telegram_group_chat_id'),
             'telegramUrl' => Setting::get('telegram_group_url', 'https://t.me/ndcsncommunityupdates'),
@@ -44,6 +46,17 @@ class DashboardController extends Controller
         ]));
 
         return back()->with('status', "Level {$level->level} text updated.");
+    }
+
+    public function updateWeatherLevel(Request $request, WeatherLevel $level): RedirectResponse
+    {
+        $level->update($request->validate([
+            'name' => 'required|string|max:60',
+            'colour' => 'required|in:green,yellow,orange,red',
+            'description' => 'required|string|max:255',
+        ]));
+
+        return back()->with('status', "Weather level {$level->level} updated.");
     }
 
     public function settings(Request $request): RedirectResponse

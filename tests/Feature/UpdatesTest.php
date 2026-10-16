@@ -430,6 +430,156 @@ class UpdatesTest extends TestCase
         $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'incidents:auto-resolve')));
     }
 
+    private function weather(array $over = []): Incident
+    {
+        return Incident::create($over + [
+            'type' => 'weather', 'status' => 'warning', 'title' => 'Heavy rain expected', 'weather_kind' => 'Heavy rain',
+            'weather_level' => 6, 'area' => 'Durban North', 'weather_from' => now()->addHour(), 'weather_to' => now()->addHours(10),
+            'narrative' => "Rain of 50mm.\n\nExpect flooding.", 'published_at' => now(),
+        ]);
+    }
+
+    public function test_weather_levels_follow_the_saws_key(): void
+    {
+        $l = \App\Models\WeatherLevel::all()->keyBy('level');
+        $this->assertSame(['Yellow - Level 1', 'yellow', 'Medium Likelihood, Minor Impact'], [$l[1]->name, $l[1]->colour, $l[1]->description]);
+        $this->assertSame(['Yellow - Level 7', 'yellow', 'Very Low Likelihood, Severe Impact'], [$l[7]->name, $l[7]->colour, $l[7]->description]);
+        $this->assertSame(['Orange - Level 6', 'orange', 'High Likelihood, Significant Impact'], [$l[6]->name, $l[6]->colour, $l[6]->description]);
+        $this->assertSame(['Red - Level 10', 'red', 'High Likelihood, Severe Impact'], [$l[10]->name, $l[10]->colour, $l[10]->description]);
+    }
+
+    public function test_weather_shows_under_warnings_with_level_and_a_details_page(): void
+    {
+        $w = $this->weather();
+        $this->get('/')->assertOk()
+            ->assertSee('Current Weather Alert Level')->assertSee('Orange - Level 6')
+            ->assertSee('Heavy rain expected')->assertSee('Level 6')->assertSee('Weather')
+            ->assertSee(route('weather', $w));
+
+        $this->get(route('weather', $w))->assertOk()
+            ->assertSee('Heavy rain expected')->assertSee('Heavy rain')->assertSee('Durban North')
+            ->assertSee('Level 6 of 10')->assertSee('High Likelihood, Significant Impact')->assertSee('Expect flooding.');
+
+        // Not a weather warning → no page.
+        $this->get(route('weather', Incident::where('type', 'incident')->first()))->assertNotFound();
+
+        // Overall level = highest unresolved; none = level 0; resolved warnings don't count.
+        $this->weather(['title' => 'Gale', 'weather_level' => 9]);
+        $this->get('/')->assertSee('Orange - Level 9');
+        Incident::weather()->update(['status' => 'resolved', 'resolved_at' => now()]);
+        $this->get('/')->assertSee('No weather warnings');
+    }
+
+    public function test_newest_warning_first_with_weather_mixed_in(): void
+    {
+        $this->weather(['title' => 'Weather older', 'published_at' => now()->subHours(2)]);
+        Incident::create(['title' => 'Incident newest', 'status' => 'warning', 'published_at' => now()]);
+        $this->weather(['title' => 'Weather middle', 'published_at' => now()->subHour()]);
+
+        $this->get('/')->assertSeeInOrder(['Incident newest', 'Weather middle', 'Weather older']);
+    }
+
+    public function test_weather_warnings_resolve_quietly_one_hour_after_their_to_time(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+
+        $ended30 = $this->weather(['title' => 'Ended 30m ago', 'weather_from' => now()->subHours(5), 'weather_to' => now()->subMinutes(30)]);
+        $ended90 = $this->weather(['title' => 'Ended 90m ago', 'weather_from' => now()->subHours(9), 'weather_to' => now()->subMinutes(90)]);
+        $running = $this->weather(['title' => 'Still running', 'weather_from' => now()->subHours(2), 'weather_to' => now()->addHours(3)]);
+        // Old (posted 40h ago) but still running: the 12h rule must not touch weather.
+        $running->forceFill(['created_at' => now()->subHours(40)])->saveQuietly();
+
+        $this->artisan('incidents:auto-resolve')->assertSuccessful();
+
+        $this->assertSame('warning', $ended30->fresh()->status);
+        $this->assertSame('resolved', $ended90->fresh()->status);
+        $this->assertSame('warning', $running->fresh()->status);
+        $this->assertStringNotContainsString('RESOLVED', implode("\n", $this->groupPosts()));
+    }
+
+    public function test_admin_can_post_weather_and_it_is_announced(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $admin = User::factory()->create();
+
+        foreach (['/admin/weather', '/admin/weather/create'] as $url) {
+            $this->actingAs($admin)->get($url)->assertOk();
+        }
+
+        // Validation: to must be after from, level 1-10.
+        $bad = ['title' => 'x', 'weather_kind' => 'Hail', 'weather_level' => 11, 'weather_from' => '2026-10-17 10:00', 'weather_to' => '2026-10-17 09:00'];
+        $this->actingAs($admin)->post('/admin/weather', $bad)->assertSessionHasErrors(['weather_level', 'weather_to']);
+
+        $this->actingAs($admin)->post('/admin/weather', [
+            'title' => 'Damaging winds', 'weather_kind' => 'Strong winds', 'weather_level' => 5, 'area' => 'Umhlanga',
+            'weather_from' => '2026-10-17 10:00', 'weather_to' => '2026-10-17 20:00', 'narrative' => 'Gusts up to 80km/h.',
+        ])->assertRedirect('/admin/weather');
+
+        $w = Incident::weather()->where('title', 'Damaging winds')->firstOrFail();
+        $this->assertSame('warning', $w->status);
+        $this->assertSame(5, $w->weather_level);
+
+        $post = implode("\n", $this->groupPosts());
+        foreach (['WEATHER WARNING – Level 5 of 10', 'Damaging winds', 'Orange - Level 5', 'Strong winds · Umhlanga', 'Gusts up to 80km/h.', route('weather', $w)] as $needle) {
+            $this->assertStringContainsString($needle, $post);
+        }
+
+        // Edit page, and weather items edit through the weather form from the generic incident screens.
+        $this->actingAs($admin)->get("/admin/weather/{$w->id}/edit")->assertOk();
+        $this->actingAs($admin)->get("/admin/incidents/{$w->id}/edit")->assertRedirect("/admin/weather/{$w->id}/edit");
+        $this->actingAs($admin)->get('/admin/incidents')->assertOk()->assertSee('Damaging winds');
+        $this->actingAs($admin)->get('/admin')->assertOk();
+    }
+
+    public function test_bot_posts_weather_step_by_step(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $this->travelTo(now()->setTime(9, 0));
+        User::factory()->create(['telegram_chat_id' => '555']);
+
+        $this->say('/new');
+        $this->press('new:weather');
+        $this->say('Thunderstorms this evening');
+        $this->press('wxt:1');                 // Thunderstorms
+        $this->say('eleven');                  // re-asks
+        $this->press('wxl:7');                 // level 7
+        $this->say('Durban North, Umhlanga');
+        $this->say('nonsense');                // re-asks
+        $this->say('17:00');
+        $this->say('16:00');                   // before the start → rolls to tomorrow
+        $this->say('Severe thunderstorms with hail.');
+        $this->say('/done');
+
+        $w = Incident::weather()->where('title', 'Thunderstorms this evening')->firstOrFail();
+        $this->assertSame('Thunderstorms', $w->weather_kind);
+        $this->assertSame(7, $w->weather_level);
+        $this->assertSame('Durban North, Umhlanga', $w->area);
+        $this->assertSame(now()->setTime(17, 0)->toDateTimeString(), $w->weather_from->toDateTimeString());
+        $this->assertSame(now()->addDay()->setTime(16, 0)->toDateTimeString(), $w->weather_to->toDateTimeString());
+        $this->assertSame('Severe thunderstorms with hail.', $w->narrative);
+        $this->assertSame('telegram', $w->source);
+        $this->assertStringContainsString('WEATHER WARNING – Level 7 of 10', implode("\n", $this->groupPosts()));
+
+        // Typed type + /skip for area and from; no narrative.
+        $this->say('/weather');
+        $this->say('Dense fog');
+        $this->press('wxt:10');                // Other
+        $this->say('Fog bank');
+        $this->say('2');
+        $this->say('/skip');
+        $this->say('/skip');
+        $this->say('tomorrow 06:00');
+        $this->say('/done');
+        $fog = Incident::weather()->where('title', 'Dense fog')->firstOrFail();
+        $this->assertSame('Fog bank', $fog->weather_kind);
+        $this->assertNull($fog->area);
+        $this->assertNull($fog->narrative);
+        $this->assertSame(now()->addDay()->setTime(6, 0)->toDateTimeString(), $fog->weather_to->toDateTimeString());
+    }
+
     public function test_no_group_configured_means_no_posts(): void
     {
         Http::fake();
