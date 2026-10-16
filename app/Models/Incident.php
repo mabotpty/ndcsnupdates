@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\TouchesSite;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 class Incident extends Model
 {
@@ -55,8 +56,41 @@ class Incident extends Model
         return ['published_at' => 'datetime', 'resolved_at' => 'datetime', 'media' => 'array', 'weather_from' => 'datetime', 'weather_to' => 'datetime'];
     }
 
+    /**
+     * Public link for a weather warning: <from date>-Level<n>, e.g. 20261016-Level6.
+     * If that is already taken, the from time is appended (20261016-Level6-1400),
+     * and a counter after that in the unlikely event of an identical time.
+     * Set once at creation so links that were shared never change.
+     */
+    public static function makeWeatherSlug(?Carbon $from, int $level): string
+    {
+        $from ??= now();
+        $base = $from->format('Ymd').'-Level'.$level;
+
+        $slug = $base;
+        if (static::where('slug', $slug)->exists()) {
+            $slug = $base.'-'.$from->format('Hi');
+            for ($n = 2; static::where('slug', $slug)->exists(); $n++) {
+                $slug = $base.'-'.$from->format('Hi').'-'.$n;
+            }
+        }
+
+        return $slug;
+    }
+
+    public function weatherUrl(): string
+    {
+        return route('weather', $this->slug ?? $this->getKey());
+    }
+
     protected static function booted(): void
     {
+        static::creating(function (Incident $incident) {
+            if ($incident->type === 'weather' && ! $incident->slug) {
+                $incident->slug = static::makeWeatherSlug($incident->weather_from, (int) $incident->weather_level);
+            }
+        });
+
         static::saving(function (Incident $incident) {
             if ($incident->status === 'resolved' && ! $incident->resolved_at) {
                 $incident->resolved_at = now();

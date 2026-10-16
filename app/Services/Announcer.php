@@ -158,7 +158,7 @@ class Announcer
 
         return $text
             ."\n\n<i>Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.</i>"
-            ."\n\n🌐 ".e(route('weather', $w));
+            ."\n\n🌐 ".e($w->weatherUrl());
     }
 
     private function incidentText(Incident $i, string $head, int $bodyLimit = 700): string

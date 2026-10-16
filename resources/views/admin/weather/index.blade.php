@@ -25,7 +25,7 @@
                   <form method="post" action="{{ route('admin.incidents.status', $w) }}">@csrf<input type="hidden" name="status" value="resolved"><button class="btn btn-sm" type="submit">Resolve{{ $groupOn ? ' quietly' : '' }}</button>@if ($groupOn) <button class="btn btn-sm" type="submit" name="announce" value="1">📣 + alert group</button>@endif</form>
                 @endif
                 <a class="btn btn-sm" href="{{ route('admin.weather.edit', $w) }}">Edit</a>
-                <a class="btn btn-sm" href="{{ route('weather', $w) }}" target="_blank">View ↗</a>
+                <a class="btn btn-sm" href="{{ $w->weatherUrl() }}" target="_blank">View ↗</a>
                 <form method="post" action="{{ route('admin.weather.destroy', $w) }}" onsubmit="return confirm('Delete this weather warning?')">@csrf @method('DELETE')<button class="btn btn-sm btn-danger" type="submit">Delete</button></form>
               </div>
             </td>

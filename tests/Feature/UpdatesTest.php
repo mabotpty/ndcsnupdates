@@ -454,20 +454,54 @@ class UpdatesTest extends TestCase
         $this->get('/')->assertOk()
             ->assertSee('Current Weather Alert Level')->assertSee('Orange - Level 6')
             ->assertSee('Heavy rain expected')->assertSee('Level 6')->assertSee('Weather')
-            ->assertSee(route('weather', $w));
+            ->assertSee($w->weatherUrl());
 
-        $this->get(route('weather', $w))->assertOk()
+        $this->get($w->weatherUrl())->assertOk()
             ->assertSee('Heavy rain expected')->assertSee('Heavy rain')->assertSee('Durban North')
             ->assertSee('Level 6 of 10')->assertSee('High Likelihood, Significant Impact')->assertSee('Expect flooding.');
 
         // Not a weather warning → no page.
-        $this->get(route('weather', Incident::where('type', 'incident')->first()))->assertNotFound();
+        $this->get('/weather/'.Incident::where('type', 'incident')->first()->id)->assertNotFound();
 
         // Overall level = highest unresolved; none = level 0; resolved warnings don't count.
         $this->weather(['title' => 'Gale', 'weather_level' => 9]);
         $this->get('/')->assertSee('Orange - Level 9');
         Incident::weather()->update(['status' => 'resolved', 'resolved_at' => now()]);
         $this->get('/')->assertSee('No weather warnings');
+    }
+
+    public function test_weather_links_are_date_and_level_with_the_from_time_on_a_clash(): void
+    {
+        $at = fn (string $from, int $level) => $this->weather(['weather_from' => $from, 'weather_to' => '2026-10-20 23:00', 'weather_level' => $level]);
+
+        $first = $at('2026-10-16 08:30', 6);
+        $this->assertSame('20261016-Level6', $first->slug);
+        $this->assertSame(url('/weather/20261016-Level6'), $first->weatherUrl());
+
+        // Same date and level → append the from time.
+        $second = $at('2026-10-16 14:00', 6);
+        $this->assertSame('20261016-Level6-1400', $second->slug);
+        $this->assertStringEndsWith('/weather/20261016-Level6-1400', $second->weatherUrl());
+
+        // Different level or different date → no clash, no time.
+        $this->assertSame('20261016-Level9', $at('2026-10-16 09:00', 9)->slug);
+        $this->assertSame('20261017-Level6', $at('2026-10-17 14:00', 6)->slug);
+
+        // Identical date, level and time (rare) still gets a unique link.
+        $this->assertSame('20261016-Level6-1400-2', $at('2026-10-16 14:00', 6)->slug);
+
+        // Pages resolve by link; the home page and group post use it.
+        $this->get('/weather/20261016-Level6-1400')->assertOk()->assertSee('Heavy rain expected');
+        $this->get('/weather/20261016-Level6')->assertOk();
+        $this->get('/weather/20991231-Level1')->assertNotFound();
+        $this->get('/')->assertSee('/weather/20261016-Level6-1400', false);
+
+        // Stable: editing the warning later doesn't change a link that may already be shared.
+        $first->update(['weather_level' => 3, 'weather_from' => '2026-11-01 10:00']);
+        $this->assertSame('20261016-Level6', $first->fresh()->slug);
+
+        // Old numeric links redirect permanently to the new one; non-weather ids stay 404.
+        $this->get('/weather/'.$second->id)->assertRedirect($second->weatherUrl())->assertStatus(301);
     }
 
     public function test_header_nav_and_weather_alerts_page(): void
@@ -497,7 +531,7 @@ class UpdatesTest extends TestCase
         $this->assertStringContainsString('<span class="nav-count">2</span>', $page->getContent());
 
         // The single-warning page keeps the Weather Alerts tab highlighted and links back to the list.
-        $one = $this->get(route('weather', $a))->assertOk()->assertSee('All weather alerts');
+        $one = $this->get($a->weatherUrl())->assertOk()->assertSee('All weather alerts');
         $this->assertMatchesRegularExpression('#aria-current="page" >Weather Alerts#', $one->getContent());
 
         // Other pages highlight their own tab.
@@ -557,7 +591,7 @@ class UpdatesTest extends TestCase
         $this->assertSame(5, $w->weather_level);
 
         $post = implode("\n", $this->groupPosts());
-        foreach (['WEATHER WARNING', 'Damaging winds', 'Orange - Level 5', 'Strong winds', 'Area:</b> Umhlanga', 'Gusts up to 80km/h.', 'Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.', route('weather', $w)] as $needle) {
+        foreach (['WEATHER WARNING', 'Damaging winds', 'Orange - Level 5', 'Strong winds', 'Area:</b> Umhlanga', 'Gusts up to 80km/h.', 'Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.', $w->weatherUrl()] as $needle) {
             $this->assertStringContainsString($needle, $post);
         }
 
@@ -588,7 +622,7 @@ class UpdatesTest extends TestCase
             ."📍 <b>Area:</b> Phoenix &amp; Verulam\n"
             ."📝 <b>Narrative:</b> River levels rising.\n\n"
             ."<i>Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.</i>\n\n"
-            .'🌐 '.route('weather', $w),
+            .'🌐 '.$w->weatherUrl(),
             $this->groupPosts()[0],
         );
 

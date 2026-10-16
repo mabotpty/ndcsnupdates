@@ -9,6 +9,7 @@ use App\Models\ReportGroup;
 use App\Models\Setting;
 use App\Models\WeatherLevel;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 
 class PublicController extends Controller
@@ -45,9 +46,16 @@ class PublicController extends Controller
         ]);
     }
 
-    public function weather(Incident $incident): View
+    /** Looked up by its link (e.g. 20261016-Level6); an old numeric id redirects to the link. */
+    public function weather(string $ref): View|RedirectResponse
     {
-        abort_unless($incident->isWeather(), 404);
+        $incident = Incident::weather()->where('slug', $ref)->first();
+
+        if (! $incident && ctype_digit($ref) && ($byId = Incident::weather()->find((int) $ref))) {
+            return redirect()->to($byId->weatherUrl(), 301);
+        }
+
+        abort_unless($incident, 404);
 
         return view('public.weather', [
             'w' => $incident,

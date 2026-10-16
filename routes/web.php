@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [PublicController::class, 'index'])->name('home');
 Route::get('/news', [PublicController::class, 'news'])->name('news');
 Route::get('/weather', [PublicController::class, 'weatherIndex'])->name('weather.index');
-Route::get('/weather/{incident}', [PublicController::class, 'weather'])->name('weather');
+Route::get('/weather/{ref}', [PublicController::class, 'weather'])->name('weather')->where('ref', '[A-Za-z0-9-]+');
 
 // Telegram posts here. The secret in the path plus Telegram's own secret-token
 // header both have to match (see TelegramWebhookController).
