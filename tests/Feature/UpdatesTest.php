@@ -95,7 +95,7 @@ class UpdatesTest extends TestCase
         $this->get('/')->assertSee('https://t.me/ndcsncommunityupdates');
 
         $user = User::factory()->create();
-        $this->actingAs($user)->post('/admin/settings', ['resolved_hours' => 48, 'telegram_group_url' => ''])->assertRedirect();
+        $this->actingAs($user)->post('/admin/settings', ['resolved_hours' => 48, 'auto_resolve_hours' => 12, 'telegram_group_url' => ''])->assertRedirect();
         $this->get('/')->assertDontSee('Join on Telegram');
     }
 
@@ -367,6 +367,67 @@ class UpdatesTest extends TestCase
         foreach (range(1, 180) as $n) {
             $this->assertStringContainsString("Update {$n}: police are monitoring the march & maintaining order.", $rebuilt);
         }
+    }
+
+    public function test_old_open_items_are_resolved_quietly(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+
+        $make = function (string $title, string $status, int $hoursOld) {
+            $i = Incident::create(['title' => $title, 'status' => $status]);
+            $i->forceFill(['created_at' => now()->subHours($hoursOld)])->saveQuietly();
+
+            return $i;
+        };
+        $old = $make('Old warning', 'warning', 13);
+        $oldMon = $make('Old monitoring', 'monitoring', 30);
+        $fresh = $make('Fresh warning', 'warning', 11);
+        $backdated = Incident::create(['title' => 'Backdated but just posted', 'status' => 'warning', 'published_at' => now()->subDays(2)]);
+        $done = $make('Already resolved', 'resolved', 50);
+
+        $this->artisan('incidents:auto-resolve')->assertSuccessful();
+
+        $this->assertSame('resolved', $old->fresh()->status);
+        $this->assertNotNull($old->fresh()->resolved_at);
+        $this->assertSame('resolved', $oldMon->fresh()->status);
+        $this->assertSame('warning', $fresh->fresh()->status);
+        $this->assertSame('warning', $backdated->fresh()->status);
+        $this->assertSame('resolved', $done->fresh()->status);
+
+        // Quiet: nothing about "RESOLVED" goes to the group.
+        $this->assertStringNotContainsString('RESOLVED', implode("\n", $this->groupPosts()));
+
+        // 0 switches it off.
+        Setting::put('auto_resolve_hours', '0');
+        $again = $make('Ancient', 'warning', 500);
+        $this->artisan('incidents:auto-resolve')->assertSuccessful();
+        $this->assertSame('warning', $again->fresh()->status);
+
+        // Configurable from the admin dashboard.
+        $admin = User::factory()->create();
+        $this->actingAs($admin)->post('/admin/settings', ['resolved_hours' => 48, 'auto_resolve_hours' => 6, 'telegram_group_url' => ''])->assertRedirect();
+        $this->assertSame('6', Setting::get('auto_resolve_hours'));
+    }
+
+    public function test_report_areas_are_cleared_nightly(): void
+    {
+        $this->assertGreaterThan(0, \App\Models\ReportEntry::whereNotNull('area')->count());
+        $entry = \App\Models\ReportEntry::first();
+        $lines = $entry->lines;
+        $status = $entry->status;
+
+        $this->artisan('report:clear-areas')->assertSuccessful();
+
+        $this->assertSame(0, \App\Models\ReportEntry::whereNotNull('area')->count());
+        // Only the area is cleared; status and bullet points stay.
+        $this->assertSame($lines, $entry->fresh()->lines);
+        $this->assertSame($status, $entry->fresh()->status);
+
+        // Both jobs are on the scheduler at the right times.
+        $events = collect(app(\Illuminate\Console\Scheduling\Schedule::class)->events());
+        $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'report:clear-areas') && $e->expression === '0 0 * * *'));
+        $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'incidents:auto-resolve')));
     }
 
     public function test_no_group_configured_means_no_posts(): void

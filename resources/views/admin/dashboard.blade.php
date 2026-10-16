@@ -46,6 +46,11 @@
             <p class="hint">After this, resolved items drop off the public page (they stay here).</p>
           </div>
           <div class="field">
+            <label for="ar">Quietly resolve open items after (hours)</label>
+            <input id="ar" type="number" name="auto_resolve_hours" value="{{ $autoResolveHours }}" min="0" max="720" required>
+            <p class="hint">Warnings and monitoring items still open this long after being posted are resolved automatically, without alerting the Telegram group. 0 turns it off.</p>
+          </div>
+          <div class="field">
             <label for="tg">Public Telegram group link</label>
             <input id="tg" type="url" name="telegram_group_url" value="{{ $telegramUrl }}" placeholder="https://t.me/...">
             <p class="hint">Shown as a "Join on Telegram" banner on the home page. Leave empty to hide it.</p>
