@@ -36,7 +36,8 @@ class TelegramWebhookCommand extends Command
         $bot->api('setMyCommands', ['commands' => [
             ['command' => 'status', 'description' => 'Current level and open items'],
             ['command' => 'level', 'description' => 'Change the safety alert level'],
-            ['command' => 'new', 'description' => 'Post a warning or monitoring item'],
+            ['command' => 'new', 'description' => 'Post a warning, monitoring item or weather warning'],
+            ['command' => 'weather', 'description' => 'Post a weather warning'],
             ['command' => 'list', 'description' => 'Open items (resolve / delete)'],
             ['command' => 'sitrep', 'description' => 'Situation report entries'],
             ['command' => 'news', 'description' => 'Add a SAPS release'],

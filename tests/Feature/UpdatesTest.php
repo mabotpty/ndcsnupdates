@@ -522,7 +522,7 @@ class UpdatesTest extends TestCase
         $this->assertSame(5, $w->weather_level);
 
         $post = implode("\n", $this->groupPosts());
-        foreach (['WEATHER WARNING – Level 5 of 10', 'Damaging winds', 'Orange - Level 5', 'Strong winds · Umhlanga', 'Gusts up to 80km/h.', route('weather', $w)] as $needle) {
+        foreach (['WEATHER WARNING', 'Damaging winds', 'Orange - Level 5', 'Strong winds', 'Area:</b> Umhlanga', 'Gusts up to 80km/h.', 'Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.', route('weather', $w)] as $needle) {
             $this->assertStringContainsString($needle, $post);
         }
 
@@ -531,6 +531,39 @@ class UpdatesTest extends TestCase
         $this->actingAs($admin)->get("/admin/incidents/{$w->id}/edit")->assertRedirect("/admin/weather/{$w->id}/edit");
         $this->actingAs($admin)->get('/admin/incidents')->assertOk()->assertSee('Damaging winds');
         $this->actingAs($admin)->get('/admin')->assertOk();
+    }
+
+    public function test_weather_group_post_has_the_agreed_format(): void
+    {
+        Http::fake();
+        Setting::put('telegram_group_chat_id', '-100123');
+        $admin = User::factory()->create();
+
+        $this->actingAs($admin)->post('/admin/weather', [
+            'title' => 'Flash flooding', 'weather_kind' => 'Flooding', 'weather_level' => 10, 'area' => 'Phoenix & Verulam',
+            'weather_from' => '2026-10-17 10:00', 'weather_to' => '2026-10-17 20:00', 'narrative' => 'River levels rising.',
+        ]);
+        $w = Incident::weather()->firstOrFail();
+
+        $this->assertSame(
+            "⛈ <b>WEATHER WARNING</b>\n"
+            ."<b>Flash flooding</b> (Flooding)\n\n"
+            ."🔴 <b>Level:</b> Red - Level 10 — High Likelihood, Severe Impact\n"
+            ."🕒 <b>From/To:</b> Sat 17 Oct, 10:00 → Sat 17 Oct, 20:00\n"
+            ."📍 <b>Area:</b> Phoenix &amp; Verulam\n"
+            ."📝 <b>Narrative:</b> River levels rising.\n\n"
+            ."<i>Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.</i>\n\n"
+            .'🌐 '.route('weather', $w),
+            $this->groupPosts()[0],
+        );
+
+        // Level colours: SAWS 1-4/7 yellow, 5/6/8/9 orange, 10 red.
+        $dots = collect([1 => '🟡', 5 => '🟠', 7 => '🟡', 9 => '🟠', 10 => '🔴'])->map(function ($dot, $lvl) {
+            $x = $this->weather(['title' => "L{$lvl}", 'weather_level' => $lvl]);
+
+            return str_contains((new \ReflectionMethod(\App\Services\Announcer::class, 'weatherText'))->invoke(app(\App\Services\Announcer::class), $x), "{$dot} <b>Level:</b>");
+        });
+        $this->assertTrue($dots->every(fn ($ok) => $ok));
     }
 
     public function test_bot_posts_weather_step_by_step(): void
@@ -561,7 +594,7 @@ class UpdatesTest extends TestCase
         $this->assertSame(now()->addDay()->setTime(16, 0)->toDateTimeString(), $w->weather_to->toDateTimeString());
         $this->assertSame('Severe thunderstorms with hail.', $w->narrative);
         $this->assertSame('telegram', $w->source);
-        $this->assertStringContainsString('WEATHER WARNING – Level 7 of 10', implode("\n", $this->groupPosts()));
+        $this->assertStringContainsString('🟡 <b>Level:</b> Yellow - Level 7', implode("\n", $this->groupPosts())); // SAWS level 7 is yellow
 
         // Typed type + /skip for area and from; no narrative.
         $this->say('/weather');

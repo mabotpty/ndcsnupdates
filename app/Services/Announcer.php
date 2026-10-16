@@ -139,19 +139,26 @@ class Announcer
     private function weatherText(Incident $w): string
     {
         $level = WeatherLevel::find((int) $w->weather_level);
+        $dot = ['green' => '🟢', 'yellow' => '🟡', 'orange' => '🟠', 'red' => '🔴'][$level?->colour ?? 'yellow'] ?? '🟡';
 
-        $text = '⛈ <b>WEATHER WARNING – Level '.(int) $w->weather_level.' of 10</b>'
-            ."\n<b>".e($w->title).'</b>';
-        if ($level) {
-            $text .= "\n".e($level->name);
-        }
-        $text .= "\n\n".e(trim($w->weather_kind.($w->area ? ' · '.$w->area : '')));
-        $text .= "\n🕒 ".$w->weather_from?->format('D j M, H:i').' → '.$w->weather_to?->format('D j M, H:i');
+        $levelText = $level
+            ? $level->name.' — '.$level->description
+            : 'Level '.(int) $w->weather_level;
+
+        $text = "⛈ <b>WEATHER WARNING</b>\n"
+            .'<b>'.e($w->title).'</b> ('.e($w->weather_kind).')'
+            ."\n\n{$dot} <b>Level:</b> ".e($levelText)
+            ."\n🕒 <b>From/To:</b> ".$w->weather_from?->format('D j M, H:i').' → '.$w->weather_to?->format('D j M, H:i')
+            ."\n📍 <b>Area:</b> ".e($w->area ?: 'Not specified');
+
         if ($w->narrative) {
-            $text .= "\n\n".e(mb_strimwidth($w->narrative, 0, 1200, '…'));
+            // Leave room for the footer inside Telegram's 4096-character limit.
+            $text .= "\n📝 <b>Narrative:</b> ".e(mb_strimwidth($w->narrative, 0, 2800, '…'));
         }
 
-        return $text."\n\nFull details: ".e(route('weather', $w));
+        return $text
+            ."\n\n<i>Emergency Services can be contacted on 031 361 0000 or 112 from a cellphone.</i>"
+            ."\n\n🌐 ".e(route('weather', $w));
     }
 
     private function incidentText(Incident $i, string $head, int $bodyLimit = 700): string
