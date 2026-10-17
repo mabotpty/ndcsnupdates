@@ -470,6 +470,91 @@ class UpdatesTest extends TestCase
         $this->get('/')->assertSee('No weather warnings');
     }
 
+    public function test_bot_manages_situation_report_entries(): void
+    {
+        Http::fake();
+        User::factory()->create(['telegram_chat_id' => '555']);
+        $northern = \App\Models\ReportEntry::where('area', 'Northern Area')->firstOrFail();
+        $transport = $northern->group;
+
+        // /sitrep shows a menu: every entry plus add / section / reset buttons.
+        $this->say('/sitrep');
+        $menu = json_encode($this->sentTo('sendMessage'));
+        foreach (["sr:e:{$northern->id}", "sr:a:{$transport->id}", 'sr:g', 'sr:r', 'Northern Area', 'Transport Routes'] as $needle) {
+            $this->assertStringContainsString($needle, $menu);
+        }
+
+        // Status buttons.
+        $this->press("sr:e:{$northern->id}");
+        $this->press("sr:st:{$northern->id}:danger");
+        $this->assertSame('danger', $northern->fresh()->status);
+
+        // Edit text (newline or | separate bullets), then area; /skip clears the area.
+        $this->press("sr:t:{$northern->id}");
+        $this->say("M4 closed at Umhlanga\nUse the N2 | Expect delays");
+        $this->assertSame("M4 closed at Umhlanga\nUse the N2\nExpect delays", $northern->fresh()->lines);
+
+        $this->press("sr:ar:{$northern->id}");
+        $this->say('Northern Area (N2)');
+        $this->assertSame('Northern Area (N2)', $northern->fresh()->area);
+        $this->press("sr:ar:{$northern->id}");
+        $this->say('/skip');
+        $this->assertNull($northern->fresh()->area);
+
+        // Add an entry to a section: area → status button → text.
+        $this->press("sr:a:{$transport->id}");
+        $this->say('Phoenix');
+        $this->say('typing instead of tapping');          // reminded to use the buttons, nothing created
+        $this->assertDatabaseMissing('report_entries', ['area' => 'Phoenix']);
+        $this->press('sr:as:warning');
+        $this->say('Slow traffic | Use Inanda Rd');
+        $phoenix = \App\Models\ReportEntry::where('area', 'Phoenix')->firstOrFail();
+        $this->assertSame($transport->id, $phoenix->report_group_id);
+        $this->assertSame('warning', $phoenix->status);
+        $this->assertSame("Slow traffic\nUse Inanda Rd", $phoenix->lines);
+
+        // Skips: no area, default text.
+        $this->press("sr:a:{$transport->id}");
+        $this->say('/skip');
+        $this->press('sr:as:ok');
+        $this->say('/skip');
+        $bare = \App\Models\ReportEntry::where('report_group_id', $transport->id)->whereNull('area')->where('id', '!=', $northern->id)->latest('id')->firstOrFail();
+        $this->assertSame('No reported issues', $bare->lines);
+        $this->assertSame('ok', $bare->status);
+
+        // New section, then an entry in it.
+        $this->press('sr:g');
+        $this->say('Schools');
+        $schools = \App\Models\ReportGroup::where('title', 'Schools')->firstOrFail();
+        $this->assertGreaterThan($transport->sort, $schools->sort);
+        $this->press("sr:a:{$schools->id}");
+        $this->say('Durban North Primary');
+        $this->press('sr:as:ok');
+        $this->say('Open as normal');
+
+        // The public page shows it all.
+        $this->get('/')->assertSee('Phoenix')->assertSee('Use Inanda Rd')->assertSee('Schools')->assertSee('Open as normal')->assertSee('Use the N2');
+
+        // Delete asks first.
+        $this->press("sr:d:{$phoenix->id}");
+        $this->assertModelExists($phoenix);
+        $this->press("sr:dy:{$phoenix->id}");
+        $this->assertModelMissing($phoenix);
+
+        // Reset everything: all clear, default text; area labels stay.
+        $this->press('sr:r');
+        $this->assertSame('danger', $northern->fresh()->status);
+        $this->press('sr:ry');
+        $this->assertSame(0, \App\Models\ReportEntry::where('status', '!=', 'ok')->count());
+        $this->assertSame(0, \App\Models\ReportEntry::where('lines', '!=', 'No reported issues')->count());
+        $this->assertSame('Durban North Primary', \App\Models\ReportEntry::where('area', 'Durban North Primary')->value('area'));
+
+        // The old one-line command still works.
+        $this->say("/sit {$northern->id} danger Road closed | Use the M4");
+        $this->assertSame('danger', $northern->fresh()->status);
+        $this->assertSame("Road closed\nUse the M4", $northern->fresh()->lines);
+    }
+
     public function test_weather_links_are_date_and_level_with_the_from_time_on_a_clash(): void
     {
         $at = fn (string $from, int $level) => $this->weather(['weather_from' => $from, 'weather_to' => '2026-10-20 23:00', 'weather_level' => $level]);

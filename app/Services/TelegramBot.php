@@ -6,6 +6,7 @@ use App\Models\AlertLevel;
 use App\Models\Incident;
 use App\Models\NewsItem;
 use App\Models\ReportEntry;
+use App\Models\ReportGroup;
 use App\Models\Setting;
 use App\Models\User;
 use App\Models\WeatherLevel;
@@ -233,8 +234,8 @@ class TelegramBot
 /resolve <i>ID</i> – mark an item resolved
 /edit <i>ID Title | details</i> – change an item's text
 /news – add a SAPS release step by step (or in one line: <i>/news Title | source link | text</i>)
-/sitrep – situation report entries (tap to set status)
-/sit <i>ID ok|warning|danger [text]</i> – update an entry
+/sitrep – situation report: tap an entry to change its status, text or area; add areas or sections; delete entries; reset all to all clear
+/sit <i>ID ok|warning|danger [text]</i> – quick one-line update of an entry (IDs are shown on each entry)
 /cancel – abandon what you're doing
 
 Newest items always appear first on the site.
@@ -484,6 +485,12 @@ TXT;
         $state = Cache::get($this->stateKey($chatId));
         if (! $state) {
             $this->send($chatId, 'Send /help to see what I can do.');
+
+            return;
+        }
+
+        if (str_starts_with($state['step'], 'sr_')) {
+            $this->srConversation($chatId, $text, $state);
 
             return;
         }
@@ -816,25 +823,263 @@ TXT;
 
     private function sitrep(string $chatId): void
     {
-        foreach (ReportEntry::with('group')->orderBy('report_group_id')->orderBy('sort')->get() as $entry) {
-            $this->send($chatId, $this->entryCard($entry), $this->entryButtons($entry));
+        [$text, $markup] = $this->srMenu();
+        $this->send($chatId, $text, $markup);
+    }
+
+    /** The main situation-report screen: every section with its entries as buttons. @return array{0: string, 1: array} */
+    private function srMenu(?string $note = null): array
+    {
+        $rows = [];
+        foreach (ReportGroup::with('entries')->orderBy('sort')->orderBy('id')->get() as $group) {
+            $rows[] = [['text' => '▼ '.mb_strimwidth($group->title, 0, 50, '…'), 'callback_data' => 'sr:noop']];
+            foreach ($group->entries as $entry) {
+                $label = $entry->area ?: ($entry->bullets()[0] ?? 'Entry');
+                $rows[] = [['text' => $this->entryIcon($entry->status).' '.mb_strimwidth($label, 0, 40, '…'), 'callback_data' => "sr:e:{$entry->id}"]];
+            }
+            $rows[] = [['text' => '➕ Add an area', 'callback_data' => "sr:a:{$group->id}"]];
         }
+        $rows[] = [
+            ['text' => '➕ New section', 'callback_data' => 'sr:g'],
+            ['text' => '🟢 Reset all to all clear', 'callback_data' => 'sr:r'],
+        ];
+
+        return [($note ? $note."\n\n" : '')."📋 <b>Situation report</b>\nTap an entry to update it, or add a new one.", ['inline_keyboard' => $rows]];
     }
 
     private function entryCard(ReportEntry $e): string
     {
-        $label = $e->group->title.($e->area ? ' – '.$e->area : '');
+        $e->loadMissing('group');
+        $bullets = $e->bullets();
 
-        return $this->entryIcon($e->status)." <b>#{$e->id}</b> ".e($label)."\n".e(implode(' • ', $e->bullets()));
+        return $this->entryIcon($e->status).' <b>'.e($e->group->title).'</b>'.($e->area ? ' – '.e($e->area) : '')." <i>#{$e->id}</i>"
+            ."\n".($bullets ? '• '.implode("\n• ", array_map('e', $bullets)) : '<i>no text</i>');
     }
 
     private function entryButtons(ReportEntry $e): array
     {
-        return ['inline_keyboard' => [[
-            ['text' => '🟢 All clear', 'callback_data' => "sit:{$e->id}:ok"],
-            ['text' => '🟠 Caution', 'callback_data' => "sit:{$e->id}:warning"],
-            ['text' => '🔴 Avoid', 'callback_data' => "sit:{$e->id}:danger"],
-        ]]];
+        $status = fn (string $key, string $label) => [
+            'text' => ($e->status === $key ? '✅ ' : '').$label,
+            'callback_data' => "sr:st:{$e->id}:{$key}",
+        ];
+
+        return ['inline_keyboard' => [
+            [$status('ok', '🟢 All clear'), $status('warning', '🟠 Caution'), $status('danger', '🔴 Avoid')],
+            [['text' => '✏️ Edit text', 'callback_data' => "sr:t:{$e->id}"], ['text' => '📍 Edit area', 'callback_data' => "sr:ar:{$e->id}"]],
+            [['text' => '🗑 Delete', 'callback_data' => "sr:d:{$e->id}"], ['text' => '⬅ All entries', 'callback_data' => 'sr:m']],
+        ]];
+    }
+
+    /** One bullet per line, or separated with | */
+    private function bulletText(string $text): string
+    {
+        return implode("\n", array_filter(array_map('trim', preg_split('/\R|\|/', $text))));
+    }
+
+    private function sendEntry(string $chatId, ReportEntry $entry, string $prefix = ''): void
+    {
+        $this->send($chatId, $prefix.$this->entryCard($entry), $this->entryButtons($entry));
+    }
+
+    /** Typed replies in the step-by-step situation report screens. */
+    private function srConversation(string $chatId, string $text, array $state): void
+    {
+        $forget = fn () => Cache::forget($this->stateKey($chatId));
+        $put = fn (array $s) => Cache::put($this->stateKey($chatId), $s, now()->addMinutes(30));
+
+        switch ($state['step']) {
+            case 'sr_text':
+            case 'sr_area':
+                $entry = ReportEntry::with('group')->find($state['id']);
+                if (! $entry) {
+                    $forget();
+                    $this->send($chatId, 'That entry no longer exists. Send /sitrep to start again.');
+
+                    return;
+                }
+                if ($state['step'] === 'sr_text') {
+                    $lines = $this->bulletText($text);
+                    if ($lines === '') {
+                        $this->send($chatId, 'Send the text for this entry (one bullet per line, or separate with |).');
+
+                        return;
+                    }
+                    $entry->update(['lines' => $lines]);
+                } else {
+                    $entry->update(['area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 255)]);
+                }
+                $forget();
+                $this->sendEntry($chatId, $entry->fresh('group'), "✅ Updated.\n\n");
+
+                return;
+
+            case 'sr_group':
+                $group = ReportGroup::create(['title' => mb_strimwidth($text, 0, 255), 'sort' => (int) ReportGroup::max('sort') + 1]);
+                $forget();
+                [$menu, $markup] = $this->srMenu('✅ Section <b>'.e($group->title).'</b> added. Tap “➕ Add an area” under it to add entries.');
+                $this->send($chatId, $menu, $markup);
+
+                return;
+
+            case 'sr_add_area':
+                $put(['step' => 'sr_add_status', 'group' => $state['group'], 'area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 255)]);
+                $this->send($chatId, '<b>What is the status?</b>', ['inline_keyboard' => [[
+                    ['text' => '🟢 All clear', 'callback_data' => 'sr:as:ok'],
+                    ['text' => '🟠 Caution', 'callback_data' => 'sr:as:warning'],
+                    ['text' => '🔴 Avoid', 'callback_data' => 'sr:as:danger'],
+                ]]]);
+
+                return;
+
+            case 'sr_add_status':
+                $this->send($chatId, 'Tap one of the status buttons above (🟢 🟠 🔴), or /cancel.');
+
+                return;
+
+            case 'sr_add_text':
+                $group = ReportGroup::find($state['group']);
+                if (! $group) {
+                    $forget();
+                    $this->send($chatId, 'That section no longer exists. Send /sitrep to start again.');
+
+                    return;
+                }
+                $lines = $text === '/skip' ? 'No reported issues' : $this->bulletText($text);
+                if ($lines === '') {
+                    $this->send($chatId, 'Send the text for this entry, or /skip for “No reported issues”.');
+
+                    return;
+                }
+                $entry = $group->entries()->create([
+                    'area' => $state['area'], 'status' => $state['status'], 'lines' => $lines,
+                    'sort' => (int) $group->entries()->max('sort') + 1,
+                ]);
+                $forget();
+                $this->sendEntry($chatId, $entry->load('group'), "✅ Added.\n\n");
+
+                return;
+        }
+    }
+
+    /** Button taps on the situation report screens. Returns the short toast shown by Telegram. */
+    private function sitrepCallback(array $p, string $chatId, int $messageId): string
+    {
+        $edit = fn (string $text, ?array $markup = null) => $this->api('editMessageText', array_filter([
+            'chat_id' => $chatId, 'message_id' => $messageId, 'parse_mode' => 'HTML', 'text' => $text, 'reply_markup' => $markup,
+        ]));
+        $put = fn (array $s) => Cache::put($this->stateKey($chatId), $s, now()->addMinutes(30));
+        $menu = function (?string $note = null) use ($edit) {
+            [$text, $markup] = $this->srMenu($note);
+            $edit($text, $markup);
+        };
+
+        $action = $p[1] ?? '';
+        $id = (int) ($p[2] ?? 0);
+        $needsEntry = in_array($action, ['e', 'st', 't', 'ar', 'd', 'dy'], true);
+        $entry = $needsEntry ? ReportEntry::with('group')->find($id) : null;
+
+        if ($needsEntry && ! $entry) {
+            $menu('That entry no longer exists.');
+
+            return 'Not found';
+        }
+
+        switch ($action) {
+            case 'noop':
+                return '';
+
+            case 'm':
+                Cache::forget($this->stateKey($chatId));
+                $menu();
+
+                return '';
+
+            case 'e':
+                Cache::forget($this->stateKey($chatId));
+                $edit($this->entryCard($entry), $this->entryButtons($entry));
+
+                return '';
+
+            case 'st':
+                if (! in_array($p[3] ?? '', ['ok', 'warning', 'danger'], true)) {
+                    return 'Unknown status';
+                }
+                $entry->update(['status' => $p[3]]);
+                $edit($this->entryCard($entry), $this->entryButtons($entry));
+
+                return 'Updated';
+
+            case 't':
+                $put(['step' => 'sr_text', 'id' => $entry->id]);
+                $edit($this->entryCard($entry)."\n\n✏️ Send the <b>new text</b> — one bullet per line, or separate bullets with |.\n/cancel to stop.");
+
+                return 'Send the new text';
+
+            case 'ar':
+                $put(['step' => 'sr_area', 'id' => $entry->id]);
+                $edit($this->entryCard($entry)."\n\n📍 Send the <b>new area label</b>, or /skip to clear it.\n/cancel to stop.");
+
+                return 'Send the new area';
+
+            case 'd':
+                $edit('🗑 Delete this entry?'."\n\n".$this->entryCard($entry), ['inline_keyboard' => [[
+                    ['text' => 'Yes, delete', 'callback_data' => "sr:dy:{$entry->id}"],
+                    ['text' => 'Keep it', 'callback_data' => "sr:e:{$entry->id}"],
+                ]]]);
+
+                return 'Confirm';
+
+            case 'dy':
+                $entry->delete();
+                $menu('🗑 Entry deleted.');
+
+                return 'Deleted';
+
+            case 'a':
+                $group = ReportGroup::find($id);
+                if (! $group) {
+                    $menu('That section no longer exists.');
+
+                    return 'Not found';
+                }
+                $put(['step' => 'sr_add_area', 'group' => $group->id]);
+                $edit('➕ New entry in <b>'.e($group->title)."</b>\n\n📍 Send the <b>area name</b> (e.g. <i>Northern Area</i>), or /skip for none.\n/cancel to stop.");
+
+                return 'Send the area name';
+
+            case 'as':
+                $state = Cache::get($this->stateKey($chatId));
+                if (! $state || $state['step'] !== 'sr_add_status' || ! in_array($p[2] ?? '', ['ok', 'warning', 'danger'], true)) {
+                    return 'Start again with /sitrep';
+                }
+                $put(['step' => 'sr_add_text', 'group' => $state['group'], 'area' => $state['area'], 'status' => $p[2]]);
+                $edit('Status: '.$this->entryIcon($p[2]).' '.ReportEntry::STATUSES[$p[2]]);
+                $this->send($chatId, "📝 Send the <b>text</b> — one bullet per line, or separate bullets with |.\nOr /skip for “No reported issues”.");
+
+                return 'Send the text';
+
+            case 'g':
+                $put(['step' => 'sr_group']);
+                $edit("➕ <b>New section</b>\n\nSend the section title (e.g. <i>Schools</i>). /cancel to stop.");
+
+                return 'Send the title';
+
+            case 'r':
+                $edit("🟢 Reset <b>every</b> entry to <b>All clear</b> with the text “No reported issues”?\nArea labels are kept.", ['inline_keyboard' => [[
+                    ['text' => 'Yes, reset all', 'callback_data' => 'sr:ry'],
+                    ['text' => 'Cancel', 'callback_data' => 'sr:m'],
+                ]]]);
+
+                return 'Confirm';
+
+            case 'ry':
+                ReportEntry::query()->each(fn (ReportEntry $e) => $e->update(['status' => 'ok', 'lines' => 'No reported issues']));
+                $menu('🟢 All entries reset to all clear.');
+
+                return 'Reset';
+        }
+
+        return 'Unknown action';
     }
 
     private function sit(string $chatId, string $args): void
@@ -847,7 +1092,7 @@ TXT;
 
         $entry->status = strtolower($m[2]);
         if (! empty($m[3])) {
-            $entry->lines = implode("\n", $this->split($m[3], 20));
+            $entry->lines = $this->bulletText($m[3]);
         }
         $entry->save();
 
@@ -927,16 +1172,8 @@ TXT;
                 $answer = $this->incidentCallback((int) ($parts[1] ?? 0), $parts[2] ?? '', $chatId, $messageId);
                 break;
 
-            case 'sit':
-                $entry = ReportEntry::with('group')->find((int) ($parts[1] ?? 0));
-                if ($entry && in_array($parts[2] ?? '', ['ok', 'warning', 'danger'], true)) {
-                    $entry->update(['status' => $parts[2]]);
-                    $this->api('editMessageText', [
-                        'chat_id' => $chatId, 'message_id' => $messageId, 'parse_mode' => 'HTML',
-                        'text' => $this->entryCard($entry), 'reply_markup' => $this->entryButtons($entry),
-                    ]);
-                    $answer = 'Updated';
-                }
+            case 'sr':
+                $answer = $this->sitrepCallback($parts, $chatId, (int) $messageId);
                 break;
         }
 
