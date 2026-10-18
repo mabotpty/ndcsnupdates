@@ -25,14 +25,20 @@
 <body>
   <header class="site-header">
     <div class="wrap">
-      <h1>North Durban Community Support Network</h1>
-      <h2>{{ $subtitle ?? 'North Durban and Surrounds Safety Status Updates' }}</h2>
+      <div class="brand">
+        <a class="brand-logo" href="{{ route('home') }}" aria-label="NDCSN Community Updates – home">
+          <img src="{{ url('/icons/icon-192.png') }}?v=2" alt="NDCSN Community Updates logo" width="88" height="88">
+        </a>
+        <div class="brand-text">
+          <h1>North Durban Community Support Network</h1>
+          <h2>{{ $subtitle ?? 'North Durban and Surrounds Safety Status Updates' }}</h2>
+        </div>
+      </div>
       <div class="header-meta">
         <span><span class="live-dot"></span><span id="updated">Last updated: {{ $updatedAt?->format('l j F Y, H:i') ?? '—' }}</span></span>
         <span id="offline-badge" class="offline-badge" hidden>Offline – showing the last update</span>
         <span class="refresh-note">This page refreshes automatically every minute.</span>
         <button type="button" id="notify-btn" class="btn-install" hidden>🔔 Notifications</button>
-        <button type="button" id="install" class="btn-install" hidden>📲 Install app</button>
         <nav class="nav" aria-label="Pages">
           @php($activeWeather = \App\Models\Incident::weather()->where('status', '!=', 'resolved')->count())
           <a href="{{ route('home') }}" @if(request()->routeIs('home')) aria-current="page" @endif>Safety Status</a>
@@ -40,7 +46,6 @@
           <a href="{{ route('news') }}" @if(request()->routeIs('news')) aria-current="page" @endif>SAPS Releases</a>
         </nav>
       </div>
-      <p id="ios-hint" class="ios-hint" hidden>To install on iPhone/iPad: tap the <b>Share</b> button in Safari, then <b>Add to Home Screen</b>.</p>
     </div>
   </header>
 
@@ -131,7 +136,7 @@
           .then(function (html) {
             var doc = new DOMParser().parseFromString(html, 'text/html');
             var live = doc.getElementById('live'), stamp = doc.getElementById('updated');
-            if (live) { document.getElementById('live').innerHTML = live.innerHTML; applySections(); }
+            if (live) { document.getElementById('live').innerHTML = live.innerHTML; applySections(); if (window.applyInstall) window.applyInstall(); }
             if (stamp) document.getElementById('updated').textContent = stamp.textContent;
             offline.hidden = true;
           })
@@ -148,27 +153,34 @@
         window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
       }
 
-      var installBtn = document.getElementById('install');
-      var iosHint = document.getElementById('ios-hint');
+      // "Install it as an app" bar (home page). It lives inside the live-refreshed area, so clicks are
+      // delegated and the how-to text is re-applied after every refresh.
       var deferred = null;
       var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      var ua = navigator.userAgent;
+      var os = /iphone|ipad|ipod/i.test(ua) && !window.MSStream ? 'ios' : (/android/i.test(ua) ? 'android' : 'desktop');
+      if (standalone) document.documentElement.classList.add('is-installed');
 
-      window.addEventListener('beforeinstallprompt', function (e) {
-        e.preventDefault();
-        deferred = e;
-        if (!standalone) installBtn.hidden = false;
-      });
-      window.addEventListener('appinstalled', function () { installBtn.hidden = true; deferred = null; });
+      function applyInstall() {
+        document.querySelectorAll('[data-os]').forEach(function (el) { el.hidden = el.dataset.os !== os; });
+      }
+      window.applyInstall = applyInstall;
+      applyInstall();
 
-      // iOS Safari has no install prompt; show instructions instead.
-      if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream && !standalone) installBtn.hidden = false;
+      window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferred = e; });
+      window.addEventListener('appinstalled', function () { deferred = null; document.documentElement.classList.add('is-installed'); });
 
-      installBtn.addEventListener('click', function () {
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-install]') : null;
+        if (!btn) return;
         if (deferred) {
+          // Android/desktop Chrome & Edge: the browser's own install prompt.
           deferred.prompt();
-          deferred.userChoice.then(function () { deferred = null; installBtn.hidden = true; });
+          deferred.userChoice.then(function () { deferred = null; });
         } else {
-          iosHint.hidden = !iosHint.hidden;
+          // iOS Safari (and others) can't be prompted: show the steps instead.
+          var help = document.getElementById('install-help');
+          if (help) help.hidden = !help.hidden;
         }
       });
 

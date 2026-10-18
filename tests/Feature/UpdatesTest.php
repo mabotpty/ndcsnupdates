@@ -498,13 +498,24 @@ class UpdatesTest extends TestCase
         $this->assertStringContainsString('/offline.html', $sw);
         $this->assertStringContainsString('You\'re offline', file_get_contents(public_path('offline.html')));
 
-        // Every public page links the manifest + icon, registers the worker, and has the install button.
+        // Every public page links the manifest + icon, registers the worker, and shows the logo in the header.
         foreach (['/', '/weather', '/news'] as $url) {
             $this->get($url)->assertOk()
                 ->assertSee('rel="manifest"', false)->assertSee('apple-touch-icon', false)
                 ->assertSee('viewport-fit=cover', false)->assertSee("register('/sw.js')", false)
-                ->assertSee('id="install"', false);
+                ->assertSee('class="brand-logo"', false)->assertSee('alt="NDCSN Community Updates logo"', false)
+                ->assertSee('/icons/icon-192.png', false);
         }
+
+        // Home page: the "install it as an app" bar sits directly under the Telegram bar, with steps for each device.
+        $home = $this->get('/')->assertOk()
+            ->assertSeeInOrder(['Get updates instantly', 'Install it as an app', 'All information is acquired'])
+            ->assertSee('data-install', false)->assertSee('id="install-help"', false)
+            ->assertSee('Add to Home Screen')->assertSee('Install app')->assertSee('install</b> icon', false);
+        foreach (['ios', 'android', 'desktop'] as $os) {
+            $this->assertStringContainsString('data-os="'.$os.'"', $home->getContent());
+        }
+        $this->get('/news')->assertDontSee('id="app-bar"', false);
         // The admin site is not part of the app shell.
         $this->actingAs(User::factory()->create())->get('/admin')->assertOk()->assertDontSee('rel="manifest"', false);
     }

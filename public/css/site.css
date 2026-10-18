@@ -434,3 +434,37 @@ main .wrap, .site-footer .wrap { padding-left: max(20px, env(safe-area-inset-lef
 .btn-notify.primary { background: var(--brand-2); border-color: var(--brand-2); color: #fff; }
 .btn-notify.danger { color: var(--red); }
 .btn-notify:disabled { opacity: .6; cursor: progress; }
+
+/* ---------- logo in the header ---------- */
+.brand { display: flex; align-items: center; gap: 18px; }
+.brand-logo { flex: none; display: block; line-height: 0; border-radius: 50%; }
+.brand-logo img { width: 88px; height: 88px; display: block; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .35)); }
+.brand-text { min-width: 0; }
+.site-header .brand-text h1 { margin: 0; }
+
+/* ---------- "install it as an app" bar (under the Telegram bar) ---------- */
+.join.app-bar { flex-wrap: wrap; border-left-color: var(--brand-2); }
+.app-bar .app-icon { width: 34px; height: 34px; flex: none; border-radius: 50%; }
+.app-bar .btn-app { background: var(--brand-2); box-shadow: 0 6px 16px rgba(30, 90, 168, .35); border: 0; font-family: inherit; cursor: pointer; }
+.install-help { flex-basis: 100%; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 14.5px; }
+.install-help p { margin: 0; }
+.is-installed .app-bar { display: none; }
+@media (display-mode: standalone) { .app-bar { display: none; } }
+
+@media (max-width: 760px) {
+  .brand { gap: 12px; }
+  .brand-logo img { width: 60px; height: 60px; }
+  .site-header .wrap { padding-top: calc(20px + env(safe-area-inset-top)); }
+  /* both app bars are slim one-liners on a phone; the install how-to opens below when tapped */
+  #live > .join.app-bar { order: 3; flex-wrap: wrap; }
+  .join.app-bar .btn-app { padding: 7px 14px; font-size: 13px; }
+}
+
+/* keep each header tab on one line; the row wraps instead */
+.nav { flex-wrap: wrap; }
+.nav a { white-space: nowrap; }
+@media (max-width: 760px) {
+  .nav { gap: 6px; }
+  .nav a { padding: 6px 12px; font-size: 13px; }
+  .nav-count { margin-left: 3px; }
+}

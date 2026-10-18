@@ -12,6 +12,20 @@
     </div>
   @endif
 
+  <div class="card join app-bar" id="app-bar">
+    <img class="app-icon" src="{{ url('/icons/icon-192.png') }}?v=2" alt="" width="34" height="34">
+    <div class="join-text">
+      <strong>Install it as an app</strong>
+      <span class="sub">One tap from your home screen, the last update even when you're offline, and alerts on your phone.</span>
+    </div>
+    <button type="button" class="btn-tg btn-app" data-install><span class="long">Install app</span><span class="short">Install</span></button>
+    <div class="install-help" id="install-help" hidden>
+      <p data-os="ios"><b>iPhone / iPad:</b> open this page in <b>Safari</b>, tap the <b>Share</b> button, then choose <b>Add to Home Screen</b>.</p>
+      <p data-os="android"><b>Android:</b> in Chrome tap the <b>⋮</b> menu, then <b>Install app</b> (or <b>Add to Home screen</b>).</p>
+      <p data-os="desktop"><b>Computer:</b> in Chrome or Edge click the <b>install</b> icon at the right of the address bar, or open the browser menu and choose <b>Install NDCSN Updates</b>.</p>
+    </div>
+  </div>
+
   <div class="notice" role="note">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
     <div>
