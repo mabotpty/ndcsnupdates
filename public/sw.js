@@ -6,7 +6,7 @@
  * get the last copy you saw, or a friendly offline page. The admin site, the
  * Telegram webhook and anything that isn't a plain GET are never touched.
  */
-const VERSION = 'v1';
+const VERSION = 'v3';
 const STATIC_CACHE = 'ndcsn-static-' + VERSION;
 const PAGE_CACHE = 'ndcsn-pages-' + VERSION;
 const OFFLINE_URL = '/offline.html';
@@ -16,7 +16,7 @@ const SLOW_NETWORK_MS = 4000;
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(STATIC_CACHE)
-      .then(function (cache) { return cache.addAll([OFFLINE_URL, '/icons/icon-192.png', '/icons/icon-512.png']); })
+      .then(function (cache) { return cache.addAll([OFFLINE_URL, '/icons/icon-192.png', '/icons/icon-512.png', '/icons/badge-96.png']); })
       .then(function () { return self.skipWaiting(); })
   );
 });
@@ -95,3 +95,58 @@ async function trim(cache) {
     await cache.delete(keys[i]);
   }
 }
+
+/* ---------------------------- push notifications ---------------------------- */
+
+self.addEventListener('push', function (event) {
+  var data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+
+  event.waitUntil(self.registration.showNotification(data.title || 'NDCSN Updates', {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-96.png',
+    tag: data.tag || undefined,       // same tag = replaces the earlier notification about the same item
+    renotify: !!data.tag,
+    lang: 'en-ZA',
+    data: { url: data.url || '/' }
+  }));
+});
+
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  var target = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin).href;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
+      for (var i = 0; i < windows.length; i++) {
+        if (windows[i].url.indexOf(self.location.origin) === 0 && 'navigate' in windows[i]) {
+          return windows[i].navigate(target).then(function (client) { return client && client.focus(); });
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
+});
+
+// If the browser rotates the push subscription, re-subscribe and carry the old choices over.
+self.addEventListener('pushsubscriptionchange', function (event) {
+  var old = event.oldSubscription;
+  if (!old || !old.options) return;
+
+  event.waitUntil(
+    self.registration.pushManager.subscribe(old.options).then(function (sub) {
+      var body = sub.toJSON();
+      body.old_endpoint = old.endpoint;
+      return fetch('/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    })
+  );
+});

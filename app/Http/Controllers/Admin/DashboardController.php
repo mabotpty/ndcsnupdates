@@ -20,6 +20,12 @@ class DashboardController extends Controller
             'currentLevel' => (int) Setting::get('alert_level', '0'),
             'resolvedHours' => (int) Setting::get('resolved_hours', '48'),
             'weatherLevels' => WeatherLevel::orderBy('level')->get(),
+            'push' => [
+                'enabled' => app(\App\Services\PushNotifier::class)->enabled(),
+                'total' => \App\Models\PushSubscription::count(),
+                'byCategory' => \App\Models\PushSubscription::all()
+                    ->flatMap(fn ($s) => $s->categories ?? [])->countBy()->all(),
+            ],
             'autoResolveHours' => (int) Setting::get('auto_resolve_hours', '12'),
             'groupOn' => (bool) Setting::get('telegram_group_chat_id'),
             'telegramUrl' => Setting::get('telegram_group_url', 'https://t.me/ndcsncommunityupdates'),

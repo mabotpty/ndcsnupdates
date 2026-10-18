@@ -37,6 +37,23 @@
       </div>
 
       <div class="card panel">
+        <h2>Phone notifications</h2>
+        @if ($push['enabled'])
+          <p style="margin-top:0"><b>{{ $push['total'] }}</b> device{{ $push['total'] === 1 ? '' : 's' }} subscribed.</p>
+          @if ($push['total'])
+            <ul class="row-sub" style="margin:0;padding-left:18px">
+              @foreach (\App\Services\PushNotifier::CATEGORIES as $key => $label)
+                <li>{{ $label }}: {{ $push['byCategory'][$key] ?? 0 }}</li>
+              @endforeach
+            </ul>
+          @endif
+          <p class="hint">Visitors turn this on with the 🔔 Notifications button on the site. Alerts are sent automatically when you post, change the level or add a release.</p>
+        @else
+          <p class="row-sub" style="margin:0">Not set up yet. Run <code>php artisan push:keys</code> on the server to switch it on.</p>
+        @endif
+      </div>
+
+      <div class="card panel">
         <h2>Weather alert levels</h2>
         <p class="hint" style="margin-top:-8px">The public weather level is the highest level among active weather warnings. Edit the wording of each level below.</p>
         <details>

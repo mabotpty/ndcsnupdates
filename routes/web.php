@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin;
 use App\Http\Controllers\PublicController;
+use App\Http\Controllers\PushController;
 use App\Http\Controllers\TelegramWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -9,6 +10,13 @@ Route::get('/', [PublicController::class, 'index'])->name('home');
 Route::get('/news', [PublicController::class, 'news'])->name('news');
 Route::get('/weather', [PublicController::class, 'weatherIndex'])->name('weather.index');
 Route::get('/weather/{ref}', [PublicController::class, 'weather'])->name('weather')->where('ref', '[A-Za-z0-9-]+');
+
+// Anonymous opt-in for browser push notifications (the device's own endpoint is its identity).
+Route::prefix('push')->middleware('throttle:30,1')->name('push.')->group(function () {
+    Route::post('subscribe', [PushController::class, 'subscribe'])->name('subscribe');
+    Route::post('status', [PushController::class, 'status'])->name('status');
+    Route::post('unsubscribe', [PushController::class, 'unsubscribe'])->name('unsubscribe');
+});
 
 // Telegram posts here. The secret in the path plus Telegram's own secret-token
 // header both have to match (see TelegramWebhookController).

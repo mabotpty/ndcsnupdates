@@ -479,7 +479,7 @@ class UpdatesTest extends TestCase
         $this->assertSame('#14407a', $manifest['theme_color']);
         $purposes = [];
         foreach ($manifest['icons'] as $icon) {
-            [$w, $h] = getimagesize(public_path(ltrim($icon['src'], '/')));
+            [$w, $h] = getimagesize(public_path(ltrim(strtok($icon['src'], '?'), '/')));
             $this->assertSame($icon['sizes'], "{$w}x{$h}", $icon['src']);
             $purposes[] = $icon['purpose'];
         }
@@ -507,6 +507,224 @@ class UpdatesTest extends TestCase
         }
         // The admin site is not part of the app shell.
         $this->actingAs(User::factory()->create())->get('/admin')->assertOk()->assertDontSee('rel="manifest"', false);
+    }
+
+    public function test_favicon_and_app_icons_are_the_community_updates_logo(): void
+    {
+        // favicon.ico holds 16/32/48 PNG entries.
+        $ico = file_get_contents(public_path('favicon.ico'));
+        $header = unpack('vreserved/vtype/vcount', $ico);
+        $this->assertSame([0, 1, 3], [$header['reserved'], $header['type'], $header['count']]);
+        $sizes = [];
+        for ($i = 0; $i < 3; $i++) {
+            $e = unpack('Cw/Ch/Ccolors/Cres/vplanes/vbits/Vlen/Voffset', substr($ico, 6 + 16 * $i, 16));
+            $sizes[] = $e['w'];
+            $this->assertSame("\x89PNG", substr($ico, $e['offset'], 4));
+        }
+        $this->assertSame([16, 32, 48], $sizes);
+
+        // The logo is a round badge: "any" icons are transparent at the corners, maskable/iOS tiles are solid brand blue.
+        $corner = fn (string $f) => imagecolorat(imagecreatefrompng(public_path("icons/{$f}")), 1, 1);
+        $this->assertSame(127, ($corner('icon-512.png') >> 24) & 127, 'any icon keeps the round logo on transparent');
+        foreach (['icon-maskable-512.png', 'apple-touch-icon.png'] as $solid) {
+            $c = $corner($solid);
+            $this->assertSame(0, ($c >> 24) & 127, $solid.' must be opaque');
+            $this->assertSame([0x14, 0x40, 0x7a], [($c >> 16) & 255, ($c >> 8) & 255, $c & 255]);
+        }
+        // Maskable: nothing but background in the corners and edge midpoints (logo stays inside the safe zone).
+        $mask = imagecreatefrompng(public_path('icons/icon-maskable-512.png'));
+        foreach ([[2, 256], [509, 256], [256, 2], [256, 509]] as [$x, $y]) {
+            $this->assertSame(0x14407a, imagecolorat($mask, $x, $y) & 0xFFFFFF);
+        }
+
+        // Every page links them (public, admin and login).
+        $this->get('/')->assertSee('/favicon.ico', false)->assertSee('favicon-32.png', false)->assertSee('apple-touch-icon.png', false);
+        $this->get('/admin/login')->assertSee('/favicon.ico', false);
+        $this->actingAs(User::factory()->create())->get('/admin')->assertSee('/favicon.ico', false);
+    }
+
+    private function pushSpy(): \App\Services\PushNotifier
+    {
+        config(['services.webpush.public' => 'BTESTPUBLICKEY', 'services.webpush.private' => 'TESTPRIVATE']);
+        $spy = new class extends \App\Services\PushNotifier
+        {
+            public array $sent = [];
+
+            protected function deliver(\Illuminate\Support\Collection $subscriptions, array $payload): void
+            {
+                $this->sent[] = ['payload' => $payload, 'endpoints' => $subscriptions->pluck('endpoint')->sort()->values()->all()];
+            }
+
+            public function to(string $category, ?string $titleContains = null): array
+            {
+                return collect($this->sent)->filter(fn ($s) => $s['payload']['category'] === $category && (! $titleContains || str_contains($s['payload']['title'].$s['payload']['body'], $titleContains)))
+                    ->pluck('endpoints')->unique(fn ($e) => json_encode($e))->values()->all();
+            }
+        };
+        $this->app->instance(\App\Services\PushNotifier::class, $spy);
+
+        return $spy;
+    }
+
+    private function device(string $name, array $categories, int $min = 0): \App\Models\PushSubscription
+    {
+        $endpoint = "https://fcm.googleapis.com/fcm/send/{$name}";
+
+        return \App\Models\PushSubscription::create([
+            'endpoint_hash' => \App\Models\PushSubscription::hashFor($endpoint), 'endpoint' => $endpoint,
+            'p256dh' => 'BKey', 'auth' => 'authkey', 'categories' => $categories, 'min_weather_level' => $min,
+        ]);
+    }
+
+    public function test_push_subscription_endpoints_validate_and_manage_choices(): void
+    {
+        $good = [
+            'endpoint' => 'https://fcm.googleapis.com/fcm/send/abc123',
+            'keys' => ['p256dh' => 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', 'auth' => 'tBHItJI5svbpez7KI4CCXg'],
+            'categories' => ['weather', 'news'], 'min_weather_level' => 5,
+        ];
+
+        // Subscribe, then the same device changes its choices (upsert, not a duplicate).
+        $this->postJson('/push/subscribe', $good)->assertOk()->assertJson(['ok' => true]);
+        $this->postJson('/push/subscribe', ['categories' => ['warnings']] + $good)->assertOk();
+        $this->assertSame(1, \App\Models\PushSubscription::count());
+        $this->postJson('/push/status', ['endpoint' => $good['endpoint']])->assertOk()
+            ->assertExactJson(['subscribed' => true, 'categories' => ['warnings'], 'min_weather_level' => 5]);
+        $this->postJson('/push/status', ['endpoint' => 'https://fcm.googleapis.com/fcm/send/unknown'])->assertExactJson(['subscribed' => false]);
+
+        // Only genuine push services (the server POSTs to this URL), https, valid keys and categories.
+        foreach (['http://fcm.googleapis.com/fcm/send/x', 'https://evil.example.com/hook', 'https://googleapis.com.evil.com/x', 'https://169.254.169.254/latest', 'ftp://fcm.googleapis.com/x'] as $bad) {
+            $this->postJson('/push/subscribe', ['endpoint' => $bad] + $good)->assertStatus(422)->assertJsonValidationErrors('endpoint');
+        }
+        foreach (['https://updates.push.services.mozilla.com/wpush/v2/x', 'https://wns2-par02p.notify.windows.com/w/?token=x', 'https://web.push.apple.com/QGx'] as $ok) {
+            $this->postJson('/push/subscribe', ['endpoint' => $ok] + $good)->assertOk();
+        }
+        $this->postJson('/push/subscribe', ['categories' => ['hax']] + $good)->assertStatus(422);
+        $this->postJson('/push/subscribe', ['keys' => ['p256dh' => 'bad key!', 'auth' => 'x']] + $good)->assertStatus(422);
+        $this->postJson('/push/subscribe', ['min_weather_level' => 11] + $good)->assertStatus(422);
+
+        // Browser rotated its subscription: the new one inherits the old choices.
+        $new = ['endpoint' => 'https://fcm.googleapis.com/fcm/send/rotated', 'keys' => $good['keys'], 'old_endpoint' => $good['endpoint']];
+        $this->postJson('/push/subscribe', $new)->assertOk()->assertJson(['categories' => ['warnings'], 'min_weather_level' => 5]);
+        $this->assertDatabaseMissing('push_subscriptions', ['endpoint' => $good['endpoint']]);
+
+        // Unsubscribe.
+        $this->postJson('/push/unsubscribe', ['endpoint' => $new['endpoint']])->assertOk();
+        $this->assertDatabaseMissing('push_subscriptions', ['endpoint' => $new['endpoint']]);
+    }
+
+    public function test_push_notifications_go_only_to_devices_that_chose_them(): void
+    {
+        $spy = $this->pushSpy();
+        $this->device('warnings-only', ['warnings']);
+        $this->device('weather-all', ['weather']);
+        $this->device('weather-6plus', ['weather'], 6);
+        $this->device('news-level', ['news', 'level']);
+        $this->device('resolved-only', ['resolved']);
+        $ep = fn (string ...$n) => array_map(fn ($x) => "https://fcm.googleapis.com/fcm/send/{$x}", $n);
+        $admin = User::factory()->create();
+
+        // New incident → "warnings" devices only.
+        $this->actingAs($admin)->post('/admin/incidents', ['title' => 'Crowd at the circle', 'status' => 'warning', 'body' => 'Roads blocked']);
+        $this->assertSame([$ep('warnings-only')], $spy->to('warnings', 'Crowd at the circle'));
+
+        // Weather level 5 → devices with min 0 only; level 8 → also the 6+ device.
+        $this->actingAs($admin)->post('/admin/weather', ['title' => 'Showers', 'weather_kind' => 'Heavy rain', 'weather_level' => 5, 'weather_from' => '2026-10-20 10:00', 'weather_to' => '2026-10-20 20:00']);
+        $this->actingAs($admin)->post('/admin/weather', ['title' => 'Gale', 'weather_kind' => 'Strong winds', 'weather_level' => 8, 'weather_from' => '2026-10-21 10:00', 'weather_to' => '2026-10-21 20:00']);
+        $this->assertSame([$ep('weather-all')], $spy->to('weather', 'Showers'));
+        $this->assertSame([$ep('weather-6plus', 'weather-all')], $spy->to('weather', 'Gale'));
+
+        // SAPS release and safety level change → the news/level device.
+        $this->actingAs($admin)->post('/admin/news', ['title' => 'SAPS update on the march']);
+        $this->actingAs($admin)->post('/admin/level', ['level' => 3]);
+        $this->assertSame([$ep('news-level')], $spy->to('news', 'SAPS update'));
+        $this->assertSame([$ep('news-level')], $spy->to('level', 'Orange - Level 3'));
+
+        // Resolving is quiet by default; with "alert" it goes to the resolved-only devices.
+        $incident = Incident::where('title', 'Crowd at the circle')->firstOrFail();
+        $this->actingAs($admin)->post("/admin/incidents/{$incident->id}/status", ['status' => 'resolved']);
+        $this->assertSame([], $spy->to('resolved'));
+        $other = Incident::create(['title' => 'Second one', 'status' => 'warning']);
+        $this->actingAs($admin)->post("/admin/incidents/{$other->id}/status", ['status' => 'resolved', 'announce' => 1]);
+        $this->assertSame([$ep('resolved-only')], $spy->to('resolved', 'Second one'));
+
+        // Payload carries a tap-through link (weather → its own page, news → releases).
+        $gale = collect($spy->sent)->first(fn ($s) => str_contains($s['payload']['title'].$s['payload']['body'], 'Gale'));
+        $this->assertStringContainsString('/weather/20261021-Level8', $gale['payload']['url']);
+        $this->assertStringContainsString('/news', collect($spy->sent)->first(fn ($s) => $s['payload']['category'] === 'news')['payload']['url']);
+    }
+
+    public function test_real_delivery_signs_encrypts_and_prunes_dead_devices(): void
+    {
+        // Throwaway VAPID pair (test only) and RFC 8291's example device keys, so real encryption runs.
+        config([
+            'services.webpush.public' => 'BPC8qlNrrhA3lbAbmnoLnLtp9EtmOHBLo8HoYD2R60v2qBxpQgwBR_5CgSxNRRVdbNGoWjM2PgG1oxf_4qrt6ek',
+            'services.webpush.private' => 'UPXE2y-KpxSWpDRVeX-zh0lryQiB1SJ-OOlgoZyuqmo',
+            'services.webpush.subject' => 'https://updates.ndcsn.org.za',
+        ]);
+        $device = fn (string $name) => \App\Models\PushSubscription::create([
+            'endpoint_hash' => \App\Models\PushSubscription::hashFor("https://fcm.googleapis.com/fcm/send/{$name}"),
+            'endpoint' => "https://fcm.googleapis.com/fcm/send/{$name}",
+            'p256dh' => 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4',
+            'auth' => 'BTBZMqHH6r4Tts7J_aSIgg', 'categories' => ['warnings'],
+        ]);
+        [$ok, $gone, $broken] = [$device('ok'), $device('gone'), $device('broken')];
+
+        $requests = [];
+        $mock = new \GuzzleHttp\Handler\MockHandler([
+            new \GuzzleHttp\Psr7\Response(201),   // delivered
+            new \GuzzleHttp\Psr7\Response(410),   // subscription no longer exists
+            new \GuzzleHttp\Psr7\Response(500),   // push service trouble
+        ]);
+        $stack = \GuzzleHttp\HandlerStack::create($mock);
+        $stack->push(\GuzzleHttp\Middleware::history($requests));
+        $notifier = new class(new \GuzzleHttp\Client(['handler' => $stack])) extends \App\Services\PushNotifier
+        {
+            public function __construct(private \Psr\Http\Client\ClientInterface $client) {}
+
+            protected function httpClient(): \Psr\Http\Client\ClientInterface
+            {
+                return $this->client;
+            }
+        };
+
+        $notifier->send('warnings', ['title' => 'Test', 'body' => 'Hello', 'url' => '/', 'category' => 'warnings']);
+
+        $this->assertCount(3, $requests);
+        $first = $requests[0]['request'];
+        $this->assertSame('aes128gcm', $first->getHeaderLine('Content-Encoding'));           // payload encrypted
+        $this->assertStringStartsWith('vapid t=', $first->getHeaderLine('Authorization'));    // VAPID-signed
+        $this->assertSame('high', $first->getHeaderLine('Urgency'));
+        $this->assertNotEmpty((string) $first->getBody());
+        $this->assertStringNotContainsString('Hello', (string) $first->getBody());           // not plaintext
+
+        // 201 → recorded; 410 → device removed; 500 → kept, failure counted.
+        $this->assertNotNull($ok->fresh()->last_sent_at);
+        $this->assertModelMissing($gone);
+        $this->assertSame(1, $broken->fresh()->failures);
+    }
+
+    public function test_push_is_off_until_keys_exist_and_ui_follows(): void
+    {
+        config(['services.webpush.public' => null, 'services.webpush.private' => null]);
+        $this->device('someone', ['warnings']);
+
+        $notifier = new \App\Services\PushNotifier;
+        $this->assertFalse($notifier->enabled());
+        $this->actingAs(User::factory()->create())->post('/admin/incidents', ['title' => 'No keys', 'status' => 'warning'])->assertRedirect(); // must not blow up
+        $this->get('/')->assertDontSee('<meta name="vapid-public-key"', false)->assertDontSee('id="notify-dialog"', false);
+
+        config(['services.webpush.public' => 'BTESTPUBLICKEY', 'services.webpush.private' => 'x']);
+        $this->get('/')->assertSee('<meta name="vapid-public-key" content="BTESTPUBLICKEY">', false)
+            ->assertSee('id="notify-btn"', false)->assertSee('New safety warnings and monitoring items')
+            ->assertSee('Weather warnings')->assertSee('SAPS releases')->assertSee('resolved alerts');
+
+        // Service worker shows the notification and opens the right page on tap.
+        $sw = file_get_contents(public_path('sw.js'));
+        foreach (["addEventListener('push'", "addEventListener('notificationclick'", 'showNotification', 'openWindow', "addEventListener('pushsubscriptionchange'"] as $needle) {
+            $this->assertStringContainsString($needle, $sw);
+        }
+        $this->assertFileExists(public_path('icons/badge-96.png'));
     }
 
     public function test_bot_manages_situation_report_entries(): void

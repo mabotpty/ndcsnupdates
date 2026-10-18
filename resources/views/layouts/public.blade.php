@@ -6,15 +6,18 @@
   <meta name="theme-color" content="#14407a">
   <title>{{ $title ?? 'North Durban and Surrounds Safety Status Updates' }} - NDCSN</title>
   <meta name="description" content="Live safety status updates for North Durban and surrounds, from the North Durban Community Support Network.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314407a'/%3E%3Cpath d='M16 6l9 3.5v6.2c0 5.2-3.6 9.1-9 10.8-5.4-1.7-9-5.6-9-10.8V9.5z' fill='%23fff'/%3E%3C/svg%3E">
+  @include('layouts._icons')
 
   {{-- Installable app (PWA) --}}
   <link rel="manifest" href="{{ url('/manifest.webmanifest') }}">
-  <link rel="apple-touch-icon" href="{{ url('/icons/apple-touch-icon.png') }}">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="NDCSN Updates">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  @if (config('services.webpush.public'))
+    <meta name="vapid-public-key" content="{{ config('services.webpush.public') }}">
+  @endif
 
   <link rel="stylesheet" href="{{ asset('css/site.css') }}?v={{ filemtime(public_path('css/site.css')) }}">
   <noscript><meta http-equiv="refresh" content="60"></noscript>
@@ -28,6 +31,7 @@
         <span><span class="live-dot"></span><span id="updated">Last updated: {{ $updatedAt?->format('l j F Y, H:i') ?? '—' }}</span></span>
         <span id="offline-badge" class="offline-badge" hidden>Offline – showing the last update</span>
         <span class="refresh-note">This page refreshes automatically every minute.</span>
+        <button type="button" id="notify-btn" class="btn-install" hidden>🔔 Notifications</button>
         <button type="button" id="install" class="btn-install" hidden>📲 Install app</button>
         <nav class="nav" aria-label="Pages">
           @php($activeWeather = \App\Models\Incident::weather()->where('status', '!=', 'resolved')->count())
@@ -52,6 +56,36 @@
       <span>Emergency? Contact SAPS, Metro Police or your security provider directly.</span>
     </div>
   </footer>
+
+  @if (config('services.webpush.public'))
+  <dialog id="notify-dialog" class="notify" aria-labelledby="notify-title">
+    <form method="dialog" class="notify-form" id="notify-form">
+      <h2 id="notify-title">🔔 Notifications</h2>
+      <p class="notify-msg" id="notify-msg"></p>
+
+      <fieldset id="notify-options">
+        <legend>Tell me about…</legend>
+        @foreach (\App\Services\PushNotifier::CATEGORIES as $key => $label)
+          <label class="notify-opt"><input type="checkbox" name="categories" value="{{ $key }}" @checked($key !== 'resolved')> <span>{{ $label }}</span></label>
+        @endforeach
+        <label class="notify-level" for="notify-min">Weather warnings from level
+          <select id="notify-min">
+            <option value="0">1 (all warnings)</option>
+            <option value="3">3 and above</option>
+            <option value="5">5 and above (orange/red)</option>
+            <option value="8">8 and above (severe)</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <div class="notify-actions">
+        <button type="button" class="btn-notify primary" id="notify-save">Turn on notifications</button>
+        <button type="button" class="btn-notify danger" id="notify-off" hidden>Turn off</button>
+        <button type="submit" class="btn-notify">Close</button>
+      </div>
+    </form>
+  </dialog>
+  @endif
 
   <script>
     (function () {
@@ -137,6 +171,127 @@
           iosHint.hidden = !iosHint.hidden;
         }
       });
+
+      // Push notifications: each device picks what it wants to hear about.
+      var vapidMeta = document.querySelector('meta[name="vapid-public-key"]');
+      if (vapidMeta) {
+        var notifyBtn = document.getElementById('notify-btn');
+        var dialog = document.getElementById('notify-dialog');
+        var msg = document.getElementById('notify-msg');
+        var options = document.getElementById('notify-options');
+        var saveBtn = document.getElementById('notify-save');
+        var offBtn = document.getElementById('notify-off');
+        var minLevel = document.getElementById('notify-min');
+        var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('#notify-form input[name=categories]')); };
+        var isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+        var pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+        var current = null; // this device's PushSubscription, if any
+
+        notifyBtn.hidden = false;
+
+        function b64ToUint8(b64) {
+          var pad = '='.repeat((4 - b64.length % 4) % 4);
+          var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+          var out = new Uint8Array(raw.length);
+          for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+          return out;
+        }
+        function post(url, body) {
+          return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(body) })
+            .then(function (r) { return r.ok ? r.json() : Promise.reject(r); });
+        }
+        function prefs() {
+          return {
+            categories: boxes().filter(function (b) { return b.checked; }).map(function (b) { return b.value; }),
+            min_weather_level: parseInt(minLevel.value, 10) || 0
+          };
+        }
+        function setBusy(on) { saveBtn.disabled = on; offBtn.disabled = on; }
+        function paint() {
+          var on = !!current;
+          notifyBtn.textContent = on ? '🔔 Notifications on' : '🔔 Notifications';
+          saveBtn.textContent = on ? 'Save choices' : 'Turn on notifications';
+          offBtn.hidden = !on;
+        }
+
+        function describeBlocked(text) {
+          msg.textContent = text;
+          options.hidden = true; saveBtn.hidden = true; offBtn.hidden = true;
+        }
+
+        function load() {
+          options.hidden = false; saveBtn.hidden = false;
+          msg.textContent = 'Get an alert on this device when something is posted – even when the app is closed. Choose what you want:';
+          if (!pushSupported) {
+            describeBlocked(isIos && !standalone
+              ? 'On iPhone/iPad, first install this app: tap Share in Safari, then “Add to Home Screen”. Open it from your home screen and come back here to turn notifications on.'
+              : 'This browser doesn’t support push notifications.');
+            return Promise.resolve();
+          }
+          if (Notification.permission === 'denied') {
+            describeBlocked('Notifications are blocked for this site. Allow them in your browser or phone settings for this site, then come back here.');
+            return Promise.resolve();
+          }
+          return navigator.serviceWorker.ready
+            .then(function (reg) { return reg.pushManager.getSubscription(); })
+            .then(function (sub) {
+              current = sub; paint();
+              if (!sub) return;
+              return post('/push/status', { endpoint: sub.endpoint }).then(function (s) {
+                if (!s.subscribed) { return; }
+                boxes().forEach(function (b) { b.checked = s.categories.indexOf(b.value) !== -1; });
+                minLevel.value = String([0, 3, 5, 8].indexOf(s.min_weather_level) !== -1 ? s.min_weather_level : 0);
+              });
+            })
+            .catch(function () {});
+        }
+
+        saveBtn.addEventListener('click', function () {
+          var p = prefs();
+          if (!p.categories.length) { msg.textContent = 'Pick at least one thing to be notified about (or use Turn off).'; return; }
+          setBusy(true);
+          var ready = navigator.serviceWorker.ready;
+          var subscribe = current ? Promise.resolve(current) : Notification.requestPermission().then(function (perm) {
+            if (perm !== 'granted') return Promise.reject('denied');
+            return ready.then(function (reg) {
+              return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(vapidMeta.content) });
+            });
+          });
+          subscribe
+            .then(function (sub) {
+              current = sub;
+              var body = sub.toJSON(); body.categories = p.categories; body.min_weather_level = p.min_weather_level;
+              return post('/push/subscribe', body);
+            })
+            .then(function () { paint(); msg.textContent = '✅ Saved. You’ll get alerts on this device.'; })
+            .catch(function (e) {
+              msg.textContent = e === 'denied' ? 'Permission wasn’t given, so notifications are off.' : 'Sorry, that didn’t work. Please try again.';
+            })
+            .then(function () { setBusy(false); });
+        });
+
+        offBtn.addEventListener('click', function () {
+          if (!current) return;
+          setBusy(true);
+          var sub = current;
+          post('/push/unsubscribe', { endpoint: sub.endpoint })
+            .then(function () { return sub.unsubscribe(); })
+            .then(function () { current = null; paint(); msg.textContent = 'Notifications are off for this device.'; })
+            .catch(function () { msg.textContent = 'Sorry, that didn’t work. Please try again.'; })
+            .then(function () { setBusy(false); });
+        });
+
+        notifyBtn.addEventListener('click', function () {
+          load().then(function () { if (dialog.showModal) { dialog.showModal(); } else { dialog.setAttribute('open', ''); } });
+        });
+        dialog.addEventListener('click', function (e) { if (e.target === dialog) dialog.close(); }); // click outside to close
+
+        // Reflect the current state on the button without opening the dialog.
+        if (pushSupported) {
+          navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); })
+            .then(function (sub) { current = sub; paint(); }).catch(function () {});
+        }
+      }
     })();
   </script>
 </body>

@@ -23,6 +23,9 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
+        <!-- Never send real push notifications from tests (tests that need push set their own config and a fake sender). -->
+        <env name="VAPID_PUBLIC_KEY" value=""/>
+        <env name="VAPID_PRIVATE_KEY" value=""/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>

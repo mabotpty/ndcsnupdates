@@ -33,6 +33,12 @@ return [
         'secret' => env('TELEGRAM_WEBHOOK_SECRET'),
     ],
 
+    'webpush' => [
+        'public' => env('VAPID_PUBLIC_KEY'),
+        'private' => env('VAPID_PRIVATE_KEY'),
+        'subject' => env('VAPID_SUBJECT') ?: env('APP_URL', 'https://updates.ndcsn.org.za'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

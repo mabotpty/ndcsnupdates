@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo(fn () => route('admin.login'));
         $middleware->redirectUsersTo(fn () => route('admin.dashboard'));
         // Telegram can't send a CSRF token; the webhook authenticates with its own secret instead.
-        $middleware->validateCsrfTokens(except: ['telegram/webhook/*']);
+        $middleware->validateCsrfTokens(except: ['telegram/webhook/*', 'push/*']);
         $middleware->appendToGroup('web', \App\Http\Middleware\SecurityHeaders::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

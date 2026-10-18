@@ -21,12 +21,29 @@ class Announcer
     {
         if ($i->isWeather()) {
             $this->post($this->weatherText($i));
+            $this->push(
+                'weather',
+                '⛈ Weather warning – Level '.(int) $i->weather_level,
+                trim($i->title.' · '.$i->weather_kind.($i->area ? ' · '.$i->area : '')),
+                $i->weatherUrl(),
+                (int) $i->weather_level,
+                'weather-'.$i->id,
+            );
 
             return;
         }
 
         $head = $i->status === 'warning' ? '🔴 <b>WARNING</b>' : ($i->status === 'resolved' ? '✅ <b>RESOLVED</b>' : '🟡 <b>MONITORING</b>');
         $this->post($this->incidentText($i, $head, $i->media ? 500 : 700), $i->media ?? []);
+
+        $this->push(
+            $i->status === 'resolved' ? 'resolved' : 'warnings',
+            ['warning' => '🔴 Warning', 'monitoring' => '🟡 Monitoring', 'resolved' => '✅ Resolved'][$i->status] ?? 'Update',
+            $i->title.($i->body ? ' – '.$i->body : ''),
+            url('/'),
+            null,
+            'incident-'.$i->id,
+        );
     }
 
     /** Photos/videos added to an existing incident (shared to the group only). */
@@ -50,6 +67,15 @@ class Announcer
 
         // Keep the resolved message short; people already saw the details.
         $this->post($i->status === 'resolved' ? "{$head}\n".e($i->title) : $this->incidentText($i, $head));
+
+        $this->push(
+            $i->status === 'resolved' ? 'resolved' : ($i->isWeather() ? 'weather' : 'warnings'),
+            ['resolved' => '✅ Resolved', 'warning' => '🔴 Now a warning', 'monitoring' => '🟡 Now monitoring'][$i->status] ?? 'Update',
+            $i->title,
+            $i->isWeather() ? $i->weatherUrl() : url('/'),
+            $i->isWeather() ? (int) $i->weather_level : null,
+            ($i->isWeather() ? 'weather-' : 'incident-').$i->id,
+        );
     }
 
     public function levelChanged(): void
@@ -57,12 +83,20 @@ class Announcer
         $level = AlertLevel::find((int) Setting::get('alert_level', '0'));
         if ($level) {
             $this->post('🚦 <b>Safety alert level: '.e($level->name)."</b>\n".e($level->description));
+            $this->push('level', '🚦 Safety alert level: '.$level->name, $level->description, url('/'), null, 'safety-level');
         }
     }
 
     public function newsAdded(NewsItem $n): void
     {
         $this->post($this->newsMessages($n));
+        $this->push('news', '📰 New SAPS release', $n->title, url('/news'), null, 'news-'.$n->id);
+    }
+
+    /** Browser/phone push for subscribers who chose this category. */
+    private function push(string $category, string $title, string $body, string $url, ?int $weatherLevel = null, ?string $tag = null): void
+    {
+        app(PushNotifier::class)->notify($category, $title, $body, $url, $weatherLevel, $tag);
     }
 
     /**
