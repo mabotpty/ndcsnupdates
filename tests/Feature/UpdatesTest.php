@@ -458,7 +458,7 @@ class UpdatesTest extends TestCase
 
         $this->get($w->weatherUrl())->assertOk()
             ->assertSee('Heavy rain expected')->assertSee('Heavy rain')->assertSee('Durban North')
-            ->assertSee('Level 6 of 10')->assertSee('High Likelihood, Significant Impact')->assertSee('Expect flooding.');
+            ->assertSee('Level 6')->assertDontSee('of 10')->assertSee('High Likelihood, Significant Impact')->assertSee('Expect flooding.');
 
         // Not a weather warning → no page.
         $this->get('/weather/'.Incident::where('type', 'incident')->first()->id)->assertNotFound();
@@ -895,7 +895,7 @@ class UpdatesTest extends TestCase
 
         $page = $this->get('/weather')->assertOk()
             ->assertSeeInOrder(['Newer warning', 'Newer narrative text.', 'Older warning', 'Older narrative text.'])
-            ->assertSee('Level 9 of 10')->assertSee('Durban North')->assertDontSee('Gone warning');
+            ->assertSee('Level 9')->assertDontSee('of 10')->assertSee('Durban North')->assertDontSee('Gone warning');
         $this->assertStringContainsString('<span class="nav-count">2</span>', $page->getContent());
 
         // The single-warning page keeps the Weather Alerts tab highlighted and links back to the list.
