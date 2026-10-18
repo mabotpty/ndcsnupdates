@@ -393,3 +393,26 @@ button.col-head { border: 0; font-family: inherit; line-height: 1.2; }
 }
 
 .wx-list { display: grid; gap: 18px; max-width: 900px; }
+
+/* ---------- installable app (PWA) ---------- */
+.btn-install {
+  font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; color: var(--brand);
+  background: #fff; border: 0; border-radius: 999px; padding: 6px 14px;
+}
+.btn-install:hover { filter: brightness(.95); }
+.offline-badge { background: #b91c1c; color: #fff; font-weight: 700; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; }
+.ios-hint { margin: 12px 0 0; font-size: 14px; background: rgba(255, 255, 255, .15); border-radius: 12px; padding: 10px 14px; }
+[hidden] { display: none !important; }
+
+/* Notch / status bar safe areas when running as an installed app */
+.site-header .wrap { padding-top: calc(28px + env(safe-area-inset-top)); padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+main .wrap, .site-footer .wrap { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+.site-footer { padding-bottom: calc(36px + env(safe-area-inset-bottom)); }
+@media (max-width: 760px) {
+  .site-header .wrap { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  main .wrap, .site-footer .wrap { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+}
+@media (display-mode: standalone) {
+  .btn-install, .ios-hint { display: none !important; }
+  body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+}

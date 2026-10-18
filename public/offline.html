@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14407a">
+  <title>Offline - NDCSN Updates</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      background: #14407a; color: #fff; text-align: center; }
+    main { max-width: 420px; }
+    .icon { width: 72px; height: 72px; margin: 0 auto 16px; opacity: .95; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 14px; opacity: .92; }
+    button, a.btn { font: inherit; font-weight: 700; padding: 12px 24px; border-radius: 999px; border: 0; background: #fff; color: #14407a; cursor: pointer; text-decoration: none; display: inline-block; }
+    small { display: block; margin-top: 22px; opacity: .8; }
+  </style>
+</head>
+<body>
+  <main>
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l22 22M16.7 11.1A10.9 10.9 0 0 1 21 13.6M5 12.9a10.9 10.9 0 0 1 5.2-2.7M8.5 16.4a6 6 0 0 1 7 0M2 8.8a15.9 15.9 0 0 1 4.7-2.6M10.7 5.1A16 16 0 0 1 22 8.8M12 20h.01"/></svg>
+    <h1>You're offline</h1>
+    <p>We can't reach the NDCSN Updates site right now, and this page hasn't been saved on your device yet.</p>
+    <p>Once you have signal again, tap below to load the latest safety information.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+    <small>In an emergency contact SAPS, Metro Police or your security provider directly, or call 112 from a cellphone.</small>
+  </main>
+  <script>
+    // Come back to the live page as soon as the connection returns.
+    window.addEventListener('online', function () { location.reload(); });
+  </script>
+</body>
+</html>

@@ -470,6 +470,45 @@ class UpdatesTest extends TestCase
         $this->get('/')->assertSee('No weather warnings');
     }
 
+    public function test_site_is_an_installable_app(): void
+    {
+        // Manifest: valid, standalone, with real icons of the sizes it claims (incl. a maskable one).
+        $manifest = json_decode(file_get_contents(public_path('manifest.webmanifest')), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame('standalone', $manifest['display']);
+        $this->assertSame('/', $manifest['start_url']);
+        $this->assertSame('#14407a', $manifest['theme_color']);
+        $purposes = [];
+        foreach ($manifest['icons'] as $icon) {
+            [$w, $h] = getimagesize(public_path(ltrim($icon['src'], '/')));
+            $this->assertSame($icon['sizes'], "{$w}x{$h}", $icon['src']);
+            $purposes[] = $icon['purpose'];
+        }
+        $this->assertContains('maskable', $purposes);
+        $this->assertContains('any', $purposes);
+        $this->assertSame([180, 180], array_slice(getimagesize(public_path('icons/apple-touch-icon.png')), 0, 2));
+        foreach ($manifest['shortcuts'] as $s) {
+            $this->assertStringStartsWith('/', $s['url']);
+        }
+
+        // Service worker: never touches the admin site or Telegram webhook, only plain GETs; offline page is precached.
+        $sw = file_get_contents(public_path('sw.js'));
+        $this->assertStringContainsString("indexOf('/admin') === 0", $sw);
+        $this->assertStringContainsString("indexOf('/telegram') === 0", $sw);
+        $this->assertStringContainsString("req.method !== 'GET'", $sw);
+        $this->assertStringContainsString('/offline.html', $sw);
+        $this->assertStringContainsString('You\'re offline', file_get_contents(public_path('offline.html')));
+
+        // Every public page links the manifest + icon, registers the worker, and has the install button.
+        foreach (['/', '/weather', '/news'] as $url) {
+            $this->get($url)->assertOk()
+                ->assertSee('rel="manifest"', false)->assertSee('apple-touch-icon', false)
+                ->assertSee('viewport-fit=cover', false)->assertSee("register('/sw.js')", false)
+                ->assertSee('id="install"', false);
+        }
+        // The admin site is not part of the app shell.
+        $this->actingAs(User::factory()->create())->get('/admin')->assertOk()->assertDontSee('rel="manifest"', false);
+    }
+
     public function test_bot_manages_situation_report_entries(): void
     {
         Http::fake();
