@@ -468,3 +468,6 @@ main .wrap, .site-footer .wrap { padding-left: max(20px, env(safe-area-inset-lef
   .nav a { padding: 6px 12px; font-size: 13px; }
   .nav-count { margin-left: 3px; }
 }
+
+.install-help .open-chrome { display: inline-block; margin-top: 6px; font-weight: 700; padding: 7px 16px; border-radius: 999px; background: var(--brand-2); color: #fff; text-decoration: none; }
+.install-help .sub { color: var(--muted); font-size: 13px; }

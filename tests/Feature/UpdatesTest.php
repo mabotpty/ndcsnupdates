@@ -520,6 +520,21 @@ class UpdatesTest extends TestCase
         $this->actingAs(User::factory()->create())->get('/admin')->assertOk()->assertDontSee('rel="manifest"', false);
     }
 
+    public function test_android_browsers_that_trigger_play_protect_get_no_manifest(): void
+    {
+        $chrome = 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+        $samsung = 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/125.0.0.0 Mobile Safari/537.36';
+        $iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+        $desktop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+        // Chrome (and iOS / desktop) can install the app; Samsung Internet gets no manifest, so it can't build the flagged wrapper.
+        foreach ([$chrome, $iphone, $desktop] as $ua) {
+            $this->withHeaders(['User-Agent' => $ua])->get('/')->assertSee('rel="manifest"', false);
+        }
+        $this->withHeaders(['User-Agent' => $samsung])->get('/')->assertDontSee('rel="manifest"', false)
+            ->assertSee('data-os="android-other"', false)->assertSee('package=com.android.chrome', false)->assertSee('Open in Chrome');
+    }
+
     public function test_favicon_and_app_icons_are_the_community_updates_logo(): void
     {
         // favicon.ico holds 16/32/48 PNG entries.

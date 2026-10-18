@@ -9,7 +9,14 @@
   @include('layouts._icons')
 
   {{-- Installable app (PWA) --}}
-  <link rel="manifest" href="{{ url('/manifest.webmanifest') }}">
+  {{-- Some Android browsers (Samsung Internet etc.) package installs with their own, outdated Android wrapper, which
+       Google Play Protect flags as an "unsafe app". Only offer installation to browsers that don't do that: those
+       get no manifest, so they can't build the wrapper. They are pointed to Chrome instead (see the install bar). --}}
+  @php($ua = (string) request()->userAgent())
+  @php($androidOtherBrowser = preg_match('/Android/i', $ua) && preg_match('/SamsungBrowser|MiuiBrowser|UCBrowser|HeyTapBrowser|VivoBrowser|HuaweiBrowser|Puffin|Silk\//i', $ua))
+  @unless ($androidOtherBrowser)
+    <link rel="manifest" href="{{ url('/manifest.webmanifest') }}">
+  @endunless
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="NDCSN Updates">
@@ -158,7 +165,8 @@
       var deferred = null;
       var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
       var ua = navigator.userAgent;
-      var os = /iphone|ipad|ipod/i.test(ua) && !window.MSStream ? 'ios' : (/android/i.test(ua) ? 'android' : 'desktop');
+      var os = /iphone|ipad|ipod/i.test(ua) && !window.MSStream ? 'ios'
+        : (/android/i.test(ua) ? (/SamsungBrowser|MiuiBrowser|UCBrowser|HeyTapBrowser|VivoBrowser|HuaweiBrowser|Puffin|Silk\//i.test(ua) ? 'android-other' : 'android') : 'desktop');
       if (standalone) document.documentElement.classList.add('is-installed');
 
       function applyInstall() {

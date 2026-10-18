@@ -22,6 +22,7 @@
     <div class="install-help" id="install-help" hidden>
       <p data-os="ios"><b>iPhone / iPad:</b> open this page in <b>Safari</b>, tap the <b>Share</b> button, then choose <b>Add to Home Screen</b>.</p>
       <p data-os="android"><b>Android:</b> in Chrome tap the <b>⋮</b> menu, then <b>Install app</b> (or <b>Add to Home screen</b>).</p>
+      <p data-os="android-other"><b>Android:</b> for a clean install, open this page in <b>Chrome</b>, then tap <b>⋮</b> → <b>Install app</b>. <a class="open-chrome" href="intent://{{ request()->getHttpHost() }}/#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url={{ urlencode(url('/')) }};end">Open in Chrome</a><br><span class="sub">Your current browser can’t install it as a proper app (Android may show an “unsafe app” warning — the app itself is safe, it’s that browser’s packaging).</span></p>
       <p data-os="desktop"><b>Computer:</b> in Chrome or Edge click the <b>install</b> icon at the right of the address bar, or open the browser menu and choose <b>Install NDCSN Updates</b>.</p>
     </div>
   </div>
