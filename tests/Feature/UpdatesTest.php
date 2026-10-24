@@ -410,14 +410,30 @@ class UpdatesTest extends TestCase
         $this->assertSame('6', Setting::get('auto_resolve_hours'));
     }
 
-    public function test_scheduler_runs_auto_resolve_and_no_longer_clears_areas(): void
+    public function test_situation_report_is_cleared_every_night_at_3am(): void
     {
         $events = collect(app(\Illuminate\Console\Scheduling\Schedule::class)->events());
         $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'incidents:auto-resolve')));
-        // Each road's area is part of the item now, so the old nightly "clear the area" job is gone.
+        $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'report:clear-roads') && $e->expression === '0 3 * * *'));
+        $this->assertSame('Africa/Johannesburg', config('app.timezone')); // so 03:00 means South African time
         $this->assertFalse($events->contains(fn ($e) => str_contains($e->command, 'report:clear-areas')));
-    }
 
+        // Every road goes; sections stay and fall back to "No reported issues".
+        $sectionCount = \App\Models\ReportGroup::count();
+        $this->road('Kingsway', 'Amanzimtoti', 'ok');
+        $this->road('M4 North', 'Umhlanga', 'danger');
+        $this->road('Old Main Road', null, 'warning');
+        $this->assertSame(3, \App\Models\ReportEntry::count());
+
+        $this->artisan('report:clear-roads')->expectsOutput('Removed 3 situation report roads.')->assertSuccessful();
+
+        $this->assertSame(0, \App\Models\ReportEntry::count());
+        $this->assertSame($sectionCount, \App\Models\ReportGroup::count());
+        $this->get('/')->assertDontSee('Kingsway')->assertSee('No reported issues');
+
+        // Running it on an already-empty report is harmless.
+        $this->artisan('report:clear-roads')->expectsOutput('Removed 0 situation report roads.')->assertSuccessful();
+    }
     private function weather(array $over = []): Incident
     {
         return Incident::create($over + [
