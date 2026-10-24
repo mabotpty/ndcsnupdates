@@ -85,20 +85,24 @@
         @forelse ($groups as $group)
           <div class="card item">
             <h4>{{ $group->title }}</h4>
-            @foreach ($group->entries as $entry)
-              <div class="area">
-                @if ($entry->area)
-                  <span class="badge b-{{ ['ok' => 'success', 'warning' => 'warning', 'danger' => 'danger'][$entry->status] ?? 'success' }}">{{ $entry->area }}</span>
-                @endif
-                <ul>
-                  @foreach ($entry->bullets() as $line)<li>{{ $line }}</li>@endforeach
-                </ul>
-              </div>
-            @endforeach
+            @if ($group->entries->isEmpty())
+              <p class="sit-empty"><span class="dot dot-ok" aria-hidden="true"></span> No reported issues</p>
+            @else
+              <ul class="sit-list">
+                @foreach ($group->entries as $entry)
+                  <li class="sit-item">
+                    <span class="dot dot-{{ $entry->status }}" role="img" aria-label="{{ $entry->statusLabel() }}" title="{{ $entry->statusLabel() }}"></span>
+                    <span class="sit-text"><b>{{ $entry->road }}</b>@if ($entry->area)<small>{{ $entry->area }}</small>@endif</span>
+                    <span class="sit-state sit-{{ $entry->status }}">{{ $entry->statusLabel() }}</span>
+                  </li>
+                @endforeach
+              </ul>
+            @endif
           </div>
         @empty
           <div class="empty">No situation report at this time</div>
         @endforelse
+        <p class="sit-key"><span class="dot dot-ok"></span> All clear <span class="dot dot-warning"></span> Caution <span class="dot dot-danger"></span> Avoid</p>
       </div>
     </section>
 

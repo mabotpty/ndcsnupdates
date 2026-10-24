@@ -115,3 +115,18 @@ table.t tr:last-child td { border-bottom: 0; }
 .pagination .page-link { display: block; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600; }
 .pagination .active .page-link { background: var(--brand-2); color: #fff; border-color: var(--brand-2); }
 .pagination .disabled .page-link { opacity: .45; }
+
+/* ---------- situation report items (road, area, status) ---------- */
+.sit-group-form { display: grid; grid-template-columns: 1fr 90px auto auto; gap: 10px; align-items: end; margin-bottom: 16px; }
+.sit-row { display: grid; grid-template-columns: 18px minmax(0, 1.4fr) minmax(0, 1fr) 150px auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+.sit-row.sit-add { border-top: 0; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.sit-actions { display: flex; gap: 6px; }
+.dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.dot-ok { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .2); }
+.dot-warning { background: #f97316; box-shadow: 0 0 0 3px rgba(249, 115, 22, .22); }
+.dot-danger { background: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, .22); }
+@media (max-width: 860px) {
+  .sit-group-form { grid-template-columns: 1fr 80px; }
+  .sit-row { grid-template-columns: 18px 1fr; }
+  .sit-row > input, .sit-row > select, .sit-row > .sit-actions, .sit-row > .btn { grid-column: 2; }
+}

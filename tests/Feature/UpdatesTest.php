@@ -410,24 +410,12 @@ class UpdatesTest extends TestCase
         $this->assertSame('6', Setting::get('auto_resolve_hours'));
     }
 
-    public function test_report_areas_are_cleared_nightly(): void
+    public function test_scheduler_runs_auto_resolve_and_no_longer_clears_areas(): void
     {
-        $this->assertGreaterThan(0, \App\Models\ReportEntry::whereNotNull('area')->count());
-        $entry = \App\Models\ReportEntry::first();
-        $lines = $entry->lines;
-        $status = $entry->status;
-
-        $this->artisan('report:clear-areas')->assertSuccessful();
-
-        $this->assertSame(0, \App\Models\ReportEntry::whereNotNull('area')->count());
-        // Only the area is cleared; status and bullet points stay.
-        $this->assertSame($lines, $entry->fresh()->lines);
-        $this->assertSame($status, $entry->fresh()->status);
-
-        // Both jobs are on the scheduler at the right times.
         $events = collect(app(\Illuminate\Console\Scheduling\Schedule::class)->events());
-        $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'report:clear-areas') && $e->expression === '0 0 * * *'));
         $this->assertTrue($events->contains(fn ($e) => str_contains($e->command, 'incidents:auto-resolve')));
+        // Each road's area is part of the item now, so the old nightly "clear the area" job is gone.
+        $this->assertFalse($events->contains(fn ($e) => str_contains($e->command, 'report:clear-areas')));
     }
 
     private function weather(array $over = []): Incident
@@ -753,89 +741,181 @@ class UpdatesTest extends TestCase
         $this->assertFileExists(public_path('icons/badge-96.png'));
     }
 
-    public function test_bot_manages_situation_report_entries(): void
+    private function road(string $road, ?string $area, string $status = 'warning', ?int $group = null): \App\Models\ReportEntry
+    {
+        return \App\Models\ReportGroup::findOrFail($group ?? \App\Models\ReportGroup::orderBy('sort')->value('id'))
+            ->entries()->create(['road' => $road, 'area' => $area, 'status' => $status]);
+    }
+
+    public function test_situation_report_shows_each_road_with_a_coloured_dot(): void
+    {
+        // Empty sections say so.
+        $this->get('/')->assertSee('No reported issues');
+
+        $a = $this->road('Umhlanga Rocks Drive', 'Umhlanga', 'danger');
+        $b = $this->road('Kingsway', 'Amanzimtoti', 'ok');
+        $this->road('Old Main Road', null, 'warning');
+
+        $html = $this->get('/')->assertOk()
+            ->assertSee('Umhlanga Rocks Drive')->assertSee('Umhlanga')->assertSee('Kingsway')->assertSee('Old Main Road')
+            ->assertSee('dot dot-danger', false)->assertSee('dot dot-ok', false)->assertSee('dot dot-warning', false)
+            ->assertSee('aria-label="Avoid"', false)->assertSee('aria-label="Caution"', false)->assertSee('aria-label="All clear"', false)
+            ->getContent();
+        // Newest first, and that section no longer claims "No reported issues".
+        $this->assertLessThan(strpos($html, 'Kingsway'), strpos($html, 'Old Main Road'));
+        $this->assertLessThan(strpos($html, 'Umhlanga Rocks Drive'), strpos($html, 'Kingsway'));
+        // Only the section that is still empty says "No reported issues".
+        $this->assertSame(1, substr_count($html, 'No reported issues'));
+    }
+
+    public function test_admin_adds_updates_and_removes_roads_individually(): void
+    {
+        $admin = User::factory()->create();
+        $group = \App\Models\ReportGroup::orderBy('sort')->firstOrFail();
+
+        $this->actingAs($admin)->get('/admin/report')->assertOk()->assertSee('Add road');
+
+        // Add: road name + area + status (road is required, status must be a known one).
+        $this->actingAs($admin)->post("/admin/report/groups/{$group->id}/entries", ['road' => 'M4 North', 'area' => 'Umhlanga', 'status' => 'danger'])->assertRedirect();
+        $this->actingAs($admin)->post("/admin/report/groups/{$group->id}/entries", ['road' => '', 'status' => 'ok'])->assertSessionHasErrors('road');
+        $this->actingAs($admin)->post("/admin/report/groups/{$group->id}/entries", ['road' => 'X', 'status' => 'purple'])->assertSessionHasErrors('status');
+        $this->actingAs($admin)->post("/admin/report/groups/{$group->id}/entries", ['road' => 'N2', 'area' => '', 'status' => 'ok']);
+
+        $m4 = \App\Models\ReportEntry::where('road', 'M4 North')->firstOrFail();
+        $n2 = \App\Models\ReportEntry::where('road', 'N2')->firstOrFail();
+        $this->assertSame(['Umhlanga', 'danger'], [$m4->area, $m4->status]);
+        $this->assertNull($n2->area);   // blank area is stored as nothing
+
+        // Update one without touching the other.
+        $this->actingAs($admin)->put("/admin/report/entries/{$m4->id}", ['road' => 'M4 North (Umhlanga)', 'area' => 'Umhlanga', 'status' => 'warning'])->assertRedirect();
+        $this->assertSame(['M4 North (Umhlanga)', 'warning'], [$m4->fresh()->road, $m4->fresh()->status]);
+        $this->assertSame('ok', $n2->fresh()->status);
+        $this->get('/')->assertSee('M4 North (Umhlanga)')->assertSee('N2');
+
+        // Remove just one.
+        $this->actingAs($admin)->delete("/admin/report/entries/{$m4->id}")->assertRedirect();
+        $this->assertModelMissing($m4);
+        $this->assertModelExists($n2);
+        $this->get('/')->assertDontSee('M4 North')->assertSee('N2');
+
+        // Sections still work; an old multi-line "lines" field is gone.
+        $this->assertFalse(\Illuminate\Support\Facades\Schema::hasColumn('report_entries', 'lines'));
+        $this->actingAs($admin)->post('/admin/report/groups', ['title' => 'Schools'])->assertRedirect();
+        $this->assertDatabaseHas('report_groups', ['title' => 'Schools']);
+    }
+
+    public function test_old_multi_line_entries_become_individual_roads_when_migrating(): void
+    {
+        $migration = require base_path('database/migrations/2026_10_24_000001_situation_report_items.php');
+        $group = \App\Models\ReportGroup::orderBy('sort')->value('id');
+
+        // Put the table back the way it was (lines, no road), then add legacy rows.
+        $migration->down();
+        \Illuminate\Support\Facades\DB::table('report_entries')->insert([
+            ['report_group_id' => $group, 'area' => 'Northern Area', 'status' => 'danger', 'lines' => "M4 closed at Umhlanga\nUse the N2", 'sort' => 1, 'created_at' => now(), 'updated_at' => now()],
+            ['report_group_id' => $group, 'area' => 'Durban City', 'status' => 'ok', 'lines' => 'No reported issues', 'sort' => 2, 'created_at' => now(), 'updated_at' => now()],
+            ['report_group_id' => $group, 'area' => null, 'status' => 'warning', 'lines' => "Slow traffic\n\nno reported issues\nRoadworks on Kingsway", 'sort' => 3, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $migration->up();
+
+        $roads = \App\Models\ReportEntry::orderBy('id')->get(['road', 'area', 'status'])->map(fn ($e) => [$e->road, $e->area, $e->status])->all();
+        $this->assertSame([
+            ['M4 closed at Umhlanga', 'Northern Area', 'danger'],
+            ['Use the N2', 'Northern Area', 'danger'],
+            ['Slow traffic', null, 'warning'],
+            ['Roadworks on Kingsway', null, 'warning'],
+        ], $roads); // placeholders ("No reported issues") dropped, real information kept
+    }
+
+    public function test_bot_manages_situation_report_roads(): void
     {
         Http::fake();
         User::factory()->create(['telegram_chat_id' => '555']);
-        $northern = \App\Models\ReportEntry::where('area', 'Northern Area')->firstOrFail();
-        $transport = $northern->group;
+        $transport = \App\Models\ReportGroup::orderBy('sort')->firstOrFail();
+        $existing = $this->road('Kingsway', 'Amanzimtoti', 'ok');
 
-        // /sitrep shows a menu: every entry plus add / section / reset buttons.
+        // /sitrep: a menu with every road as a button, plus add / section / clear buttons.
         $this->say('/sitrep');
         $menu = json_encode($this->sentTo('sendMessage'));
-        foreach (["sr:e:{$northern->id}", "sr:a:{$transport->id}", 'sr:g', 'sr:r', 'Northern Area', 'Transport Routes'] as $needle) {
+        foreach (["sr:e:{$existing->id}", "sr:a:{$transport->id}", 'sr:g', 'sr:r', 'Kingsway', 'Transport Routes', 'Add a road'] as $needle) {
             $this->assertStringContainsString($needle, $menu);
         }
 
-        // Status buttons.
-        $this->press("sr:e:{$northern->id}");
-        $this->press("sr:st:{$northern->id}:danger");
-        $this->assertSame('danger', $northern->fresh()->status);
-
-        // Edit text (newline or | separate bullets), then area; /skip clears the area.
-        $this->press("sr:t:{$northern->id}");
-        $this->say("M4 closed at Umhlanga\nUse the N2 | Expect delays");
-        $this->assertSame("M4 closed at Umhlanga\nUse the N2\nExpect delays", $northern->fresh()->lines);
-
-        $this->press("sr:ar:{$northern->id}");
-        $this->say('Northern Area (N2)');
-        $this->assertSame('Northern Area (N2)', $northern->fresh()->area);
-        $this->press("sr:ar:{$northern->id}");
-        $this->say('/skip');
-        $this->assertNull($northern->fresh()->area);
-
-        // Add an entry to a section: area → status button → text.
+        // Add a road step by step: name → area → status button.
         $this->press("sr:a:{$transport->id}");
-        $this->say('Phoenix');
-        $this->say('typing instead of tapping');          // reminded to use the buttons, nothing created
-        $this->assertDatabaseMissing('report_entries', ['area' => 'Phoenix']);
-        $this->press('sr:as:warning');
-        $this->say('Slow traffic | Use Inanda Rd');
-        $phoenix = \App\Models\ReportEntry::where('area', 'Phoenix')->firstOrFail();
-        $this->assertSame($transport->id, $phoenix->report_group_id);
-        $this->assertSame('warning', $phoenix->status);
-        $this->assertSame("Slow traffic\nUse Inanda Rd", $phoenix->lines);
+        $this->say('Umhlanga Rocks Drive');
+        $this->say('Umhlanga');
+        $this->press('sr:as:danger');
+        $road = \App\Models\ReportEntry::where('road', 'Umhlanga Rocks Drive')->firstOrFail();
+        $this->assertSame([$transport->id, 'Umhlanga', 'danger'], [$road->report_group_id, $road->area, $road->status]);
+        $this->get('/')->assertSee('Umhlanga Rocks Drive')->assertSee('dot dot-danger', false);
 
-        // Skips: no area, default text.
+        // Skip the area; typing the status word works too.
         $this->press("sr:a:{$transport->id}");
+        $this->say('Old Main Road');
         $this->say('/skip');
-        $this->press('sr:as:ok');
-        $this->say('/skip');
-        $bare = \App\Models\ReportEntry::where('report_group_id', $transport->id)->whereNull('area')->where('id', '!=', $northern->id)->latest('id')->firstOrFail();
-        $this->assertSame('No reported issues', $bare->lines);
-        $this->assertSame('ok', $bare->status);
+        $this->say('orange');
+        $om = \App\Models\ReportEntry::where('road', 'Old Main Road')->firstOrFail();
+        $this->assertNull($om->area);
+        $this->assertSame('warning', $om->status);
 
-        // New section, then an entry in it.
+        // Nonsense instead of a status creates nothing.
+        $this->press("sr:a:{$transport->id}");
+        $this->say('Ghost Road');
+        $this->say('/skip');
+        $this->say('banana');
+        $this->assertDatabaseMissing('report_entries', ['road' => 'Ghost Road']);
+        $this->say('/cancel');
+
+        // Change status with the buttons; rename and re-area it.
+        $this->press("sr:st:{$road->id}:ok");
+        $this->assertSame('ok', $road->fresh()->status);
+        $this->press("sr:t:{$road->id}");
+        $this->say('Umhlanga Rocks Dr');
+        $this->press("sr:ar:{$road->id}");
+        $this->say('/skip');
+        $this->assertSame(['Umhlanga Rocks Dr', null], [$road->fresh()->road, $road->fresh()->area]);
+
+        // Remove one road: asks first, removes only that one.
+        $this->press("sr:d:{$om->id}");
+        $this->assertModelExists($om);
+        $this->press("sr:dy:{$om->id}");
+        $this->assertModelMissing($om);
+        $this->assertModelExists($road);
+
+        // New section, then a road in it.
         $this->press('sr:g');
         $this->say('Schools');
         $schools = \App\Models\ReportGroup::where('title', 'Schools')->firstOrFail();
-        $this->assertGreaterThan($transport->sort, $schools->sort);
         $this->press("sr:a:{$schools->id}");
         $this->say('Durban North Primary');
+        $this->say('Durban North');
         $this->press('sr:as:ok');
-        $this->say('Open as normal');
+        $this->assertDatabaseHas('report_entries', ['road' => 'Durban North Primary', 'report_group_id' => $schools->id]);
 
-        // The public page shows it all.
-        $this->get('/')->assertSee('Phoenix')->assertSee('Use Inanda Rd')->assertSee('Schools')->assertSee('Open as normal')->assertSee('Use the N2');
+        // Quick commands.
+        $this->say('/road Mount Edgecombe Rd | Mount Edgecombe | red');
+        $q = \App\Models\ReportEntry::where('road', 'Mount Edgecombe Rd')->firstOrFail();
+        $this->assertSame([$transport->id, 'Mount Edgecombe', 'danger'], [$q->report_group_id, $q->area, $q->status]);
+        $this->say('/road Lunch Rd | | green | school');
+        $this->assertSame($schools->id, \App\Models\ReportEntry::where('road', 'Lunch Rd')->value('report_group_id'));
+        $this->say('/road Default Rd');
+        $this->assertSame('warning', \App\Models\ReportEntry::where('road', 'Default Rd')->value('status'));
+        $this->say('/road Bad Rd | | purple');
+        $this->assertDatabaseMissing('report_entries', ['road' => 'Bad Rd']);
+        $this->say("/sit {$q->id} orange");
+        $this->assertSame('warning', $q->fresh()->status);
+        $this->say("/rmroad {$q->id}");
+        $this->assertModelMissing($q);
 
-        // Delete asks first.
-        $this->press("sr:d:{$phoenix->id}");
-        $this->assertModelExists($phoenix);
-        $this->press("sr:dy:{$phoenix->id}");
-        $this->assertModelMissing($phoenix);
-
-        // Reset everything: all clear, default text; area labels stay.
+        // Clear everything: asks first; sections stay and show "No reported issues".
         $this->press('sr:r');
-        $this->assertSame('danger', $northern->fresh()->status);
+        $this->assertGreaterThan(0, \App\Models\ReportEntry::count());
         $this->press('sr:ry');
-        $this->assertSame(0, \App\Models\ReportEntry::where('status', '!=', 'ok')->count());
-        $this->assertSame(0, \App\Models\ReportEntry::where('lines', '!=', 'No reported issues')->count());
-        $this->assertSame('Durban North Primary', \App\Models\ReportEntry::where('area', 'Durban North Primary')->value('area'));
-
-        // The old one-line command still works.
-        $this->say("/sit {$northern->id} danger Road closed | Use the M4");
-        $this->assertSame('danger', $northern->fresh()->status);
-        $this->assertSame("Road closed\nUse the M4", $northern->fresh()->lines);
+        $this->assertSame(0, \App\Models\ReportEntry::count());
+        $this->assertGreaterThan(0, \App\Models\ReportGroup::count());
+        $this->get('/')->assertSee('No reported issues');
     }
 
     public function test_weather_links_are_date_and_level_with_the_from_time_on_a_clash(): void
@@ -1148,8 +1228,8 @@ class UpdatesTest extends TestCase
         $this->say('/news Test release | https://example.com/x | Body text');
         $this->assertDatabaseHas('news_items', ['title' => 'Test release', 'source_url' => 'https://example.com/x', 'body' => 'Body text']);
 
-        $this->say('/sit 1 danger Road closed | Use the M4');
-        $this->assertDatabaseHas('report_entries', ['id' => 1, 'status' => 'danger']);
-        $this->get('/')->assertSee('Road closed')->assertSee('Use the M4');
+        $this->say('/road Umhlanga Rocks Dr | Umhlanga | red');
+        $this->assertDatabaseHas('report_entries', ['road' => 'Umhlanga Rocks Dr', 'status' => 'danger']);
+        $this->get('/')->assertSee('Umhlanga Rocks Dr');
     }
 }

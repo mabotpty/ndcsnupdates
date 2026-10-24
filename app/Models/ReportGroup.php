@@ -12,8 +12,9 @@ class ReportGroup extends Model
 
     protected $fillable = ['title', 'sort'];
 
+    /** Newest first, like everything else on the site. */
     public function entries(): HasMany
     {
-        return $this->hasMany(ReportEntry::class)->orderBy('sort')->orderBy('id');
+        return $this->hasMany(ReportEntry::class)->orderByDesc('id');
     }
 }

@@ -42,34 +42,33 @@ class ReportController extends Controller
 
     public function storeEntry(Request $request, ReportGroup $group): RedirectResponse
     {
-        $group->entries()->create($this->entryData($request) + ['sort' => (int) $group->entries()->max('sort') + 1]);
+        $group->entries()->create($this->entryData($request));
 
-        return back()->with('status', 'Entry added.');
+        return back()->with('status', 'Road added.');
     }
 
     public function updateEntry(Request $request, ReportEntry $entry): RedirectResponse
     {
         $entry->update($this->entryData($request));
 
-        return back()->with('status', 'Entry saved.');
+        return back()->with('status', 'Road updated.');
     }
 
     public function destroyEntry(ReportEntry $entry): RedirectResponse
     {
         $entry->delete();
 
-        return back()->with('status', 'Entry deleted.');
+        return back()->with('status', 'Road removed.');
     }
 
     private function entryData(Request $request): array
     {
         $data = $request->validate([
-            'area' => 'nullable|string|max:255',
+            'road' => 'required|string|max:120',
+            'area' => 'nullable|string|max:120',
             'status' => ['required', Rule::in(array_keys(ReportEntry::STATUSES))],
-            'lines' => 'required|string|max:3000',
-            'sort' => 'nullable|integer|min:0',
         ]);
 
-        return array_filter($data, fn ($v) => $v !== null) + ['area' => null];
+        return ['road' => trim($data['road']), 'area' => ($data['area'] ?? null) !== null ? trim($data['area']) ?: null : null, 'status' => $data['status']];
     }
 }

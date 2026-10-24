@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\AlertLevel;
 use App\Models\Incident;
 use App\Models\NewsItem;
-use App\Models\ReportEntry;
 use App\Models\ReportGroup;
 use App\Models\Setting;
 use Illuminate\Database\Seeder;
@@ -37,12 +36,9 @@ class DatabaseSeeder extends Seeder
         }
 
         if (! ReportGroup::query()->exists()) {
-            $transport = ReportGroup::create(['title' => 'Transport Routes', 'sort' => 1]);
-            $areas = ReportGroup::create(['title' => 'Malls, Shopping Centres, Residential Areas', 'sort' => 2]);
-
-            ReportEntry::create(['report_group_id' => $transport->id, 'area' => 'Northern Area', 'status' => 'ok', 'lines' => 'No reported issues', 'sort' => 1]);
-            ReportEntry::create(['report_group_id' => $transport->id, 'area' => 'Durban City/Surrounds', 'status' => 'ok', 'lines' => 'No reported issues', 'sort' => 2]);
-            ReportEntry::create(['report_group_id' => $areas->id, 'area' => null, 'status' => 'ok', 'lines' => 'No reported issues', 'sort' => 1]);
+            // Sections start empty, which the site shows as “No reported issues”.
+            ReportGroup::create(['title' => 'Transport Routes', 'sort' => 1]);
+            ReportGroup::create(['title' => 'Malls, Shopping Centres, Residential Areas', 'sort' => 2]);
         }
 
         if (! Incident::query()->exists()) {

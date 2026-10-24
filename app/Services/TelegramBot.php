@@ -211,6 +211,8 @@ class TelegramBot
             '/news' => $this->quickNews($chatId, $args),
             '/sitrep' => $this->sitrep($chatId),
             '/sit' => $this->sit($chatId, $args),
+            '/road' => $this->quickRoad($chatId, $args),
+            '/rmroad' => $this->removeRoad($chatId, $args),
             '/cancel' => $this->send($chatId, 'Cancelled.'),
             '/skip', '/done' => $this->conversation($user, $chatId, $cmd),
             '/media' => $this->startMediaForExisting($chatId, $args),
@@ -234,8 +236,10 @@ class TelegramBot
 /resolve <i>ID</i> – mark an item resolved
 /edit <i>ID Title | details</i> – change an item's text
 /news – add a SAPS release step by step (or in one line: <i>/news Title | source link | text</i>)
-/sitrep – situation report: tap an entry to change its status, text or area; add areas or sections; delete entries; reset all to all clear
-/sit <i>ID ok|warning|danger [text]</i> – quick one-line update of an entry (IDs are shown on each entry)
+/sitrep – situation report: each road is its own item (🟢 all clear · 🟠 caution · 🔴 avoid). Tap a road to change its status or remove it, or add one
+/road <i>Road | Area | green/orange/red | section</i> – quick add (only the road name is needed)
+/sit <i>ID green|orange|red</i> – change a road's status
+/rmroad <i>ID</i> – remove a road
 /cancel – abandon what you're doing
 
 Newest items always appear first on the site.
@@ -827,33 +831,31 @@ TXT;
         $this->send($chatId, $text, $markup);
     }
 
-    /** The main situation-report screen: every section with its entries as buttons. @return array{0: string, 1: array} */
+    /** The main situation-report screen: every section with its roads as buttons. @return array{0: string, 1: array} */
     private function srMenu(?string $note = null): array
     {
         $rows = [];
         foreach (ReportGroup::with('entries')->orderBy('sort')->orderBy('id')->get() as $group) {
-            $rows[] = [['text' => '▼ '.mb_strimwidth($group->title, 0, 50, '…'), 'callback_data' => 'sr:noop']];
+            $rows[] = [['text' => '▼ '.mb_strimwidth($group->title, 0, 50, '…').($group->entries->isEmpty() ? ' – no reported issues' : ''), 'callback_data' => 'sr:noop']];
             foreach ($group->entries as $entry) {
-                $label = $entry->area ?: ($entry->bullets()[0] ?? 'Entry');
-                $rows[] = [['text' => $this->entryIcon($entry->status).' '.mb_strimwidth($label, 0, 40, '…'), 'callback_data' => "sr:e:{$entry->id}"]];
+                $rows[] = [['text' => $entry->dot().' '.mb_strimwidth($entry->label(), 0, 44, '…'), 'callback_data' => "sr:e:{$entry->id}"]];
             }
-            $rows[] = [['text' => '➕ Add an area', 'callback_data' => "sr:a:{$group->id}"]];
+            $rows[] = [['text' => '➕ Add a road', 'callback_data' => "sr:a:{$group->id}"]];
         }
         $rows[] = [
             ['text' => '➕ New section', 'callback_data' => 'sr:g'],
-            ['text' => '🟢 Reset all to all clear', 'callback_data' => 'sr:r'],
+            ['text' => '🧹 Remove all roads', 'callback_data' => 'sr:r'],
         ];
 
-        return [($note ? $note."\n\n" : '')."📋 <b>Situation report</b>\nTap an entry to update it, or add a new one.", ['inline_keyboard' => $rows]];
+        return [($note ? $note."\n\n" : '')."📋 <b>Situation report</b>\nTap a road to change its status or remove it, or add a new one.\n🟢 all clear · 🟠 caution · 🔴 avoid", ['inline_keyboard' => $rows]];
     }
 
     private function entryCard(ReportEntry $e): string
     {
         $e->loadMissing('group');
-        $bullets = $e->bullets();
 
-        return $this->entryIcon($e->status).' <b>'.e($e->group->title).'</b>'.($e->area ? ' – '.e($e->area) : '')." <i>#{$e->id}</i>"
-            ."\n".($bullets ? '• '.implode("\n• ", array_map('e', $bullets)) : '<i>no text</i>');
+        return $e->dot().' <b>'.e($e->road).'</b>'.($e->area ? ' – '.e($e->area) : '')." <i>#{$e->id}</i>\n"
+            .e($e->group->title).' · '.$e->statusLabel();
     }
 
     private function entryButtons(ReportEntry $e): array
@@ -865,20 +867,34 @@ TXT;
 
         return ['inline_keyboard' => [
             [$status('ok', '🟢 All clear'), $status('warning', '🟠 Caution'), $status('danger', '🔴 Avoid')],
-            [['text' => '✏️ Edit text', 'callback_data' => "sr:t:{$e->id}"], ['text' => '📍 Edit area', 'callback_data' => "sr:ar:{$e->id}"]],
-            [['text' => '🗑 Delete', 'callback_data' => "sr:d:{$e->id}"], ['text' => '⬅ All entries', 'callback_data' => 'sr:m']],
+            [['text' => '✏️ Edit road', 'callback_data' => "sr:t:{$e->id}"], ['text' => '📍 Edit area', 'callback_data' => "sr:ar:{$e->id}"]],
+            [['text' => '🗑 Remove', 'callback_data' => "sr:d:{$e->id}"], ['text' => '⬅ All roads', 'callback_data' => 'sr:m']],
         ]];
-    }
-
-    /** One bullet per line, or separated with | */
-    private function bulletText(string $text): string
-    {
-        return implode("\n", array_filter(array_map('trim', preg_split('/\R|\|/', $text))));
     }
 
     private function sendEntry(string $chatId, ReportEntry $entry, string $prefix = ''): void
     {
         $this->send($chatId, $prefix.$this->entryCard($entry), $this->entryButtons($entry));
+    }
+
+    private function statusButtons(): array
+    {
+        return ['inline_keyboard' => [[
+            ['text' => '🟢 All clear', 'callback_data' => 'sr:as:ok'],
+            ['text' => '🟠 Caution', 'callback_data' => 'sr:as:warning'],
+            ['text' => '🔴 Avoid', 'callback_data' => 'sr:as:danger'],
+        ]]];
+    }
+
+    /** "red", "avoid", "caution", "ok"… → ok|warning|danger, or null if it isn't a status word. */
+    private function statusWord(?string $word): ?string
+    {
+        return match (strtolower(trim((string) $word))) {
+            'ok', 'clear', 'allclear', 'all clear', 'green' => 'ok',
+            'warning', 'caution', 'orange', 'amber' => 'warning',
+            'danger', 'avoid', 'red' => 'danger',
+            default => null,
+        };
     }
 
     /** Typed replies in the step-by-step situation report screens. */
@@ -888,25 +904,19 @@ TXT;
         $put = fn (array $s) => Cache::put($this->stateKey($chatId), $s, now()->addMinutes(30));
 
         switch ($state['step']) {
-            case 'sr_text':
-            case 'sr_area':
+            case 'sr_text':   // edit a road's name
+            case 'sr_area':   // edit a road's area
                 $entry = ReportEntry::with('group')->find($state['id']);
                 if (! $entry) {
                     $forget();
-                    $this->send($chatId, 'That entry no longer exists. Send /sitrep to start again.');
+                    $this->send($chatId, 'That road no longer exists. Send /sitrep to start again.');
 
                     return;
                 }
                 if ($state['step'] === 'sr_text') {
-                    $lines = $this->bulletText($text);
-                    if ($lines === '') {
-                        $this->send($chatId, 'Send the text for this entry (one bullet per line, or separate with |).');
-
-                        return;
-                    }
-                    $entry->update(['lines' => $lines]);
+                    $entry->update(['road' => mb_strimwidth($text, 0, 120)]);
                 } else {
-                    $entry->update(['area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 255)]);
+                    $entry->update(['area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 120)]);
                 }
                 $forget();
                 $this->sendEntry($chatId, $entry->fresh('group'), "✅ Updated.\n\n");
@@ -916,48 +926,62 @@ TXT;
             case 'sr_group':
                 $group = ReportGroup::create(['title' => mb_strimwidth($text, 0, 255), 'sort' => (int) ReportGroup::max('sort') + 1]);
                 $forget();
-                [$menu, $markup] = $this->srMenu('✅ Section <b>'.e($group->title).'</b> added. Tap “➕ Add an area” under it to add entries.');
+                [$menu, $markup] = $this->srMenu('✅ Section <b>'.e($group->title).'</b> added. Tap “➕ Add a road” under it to add roads.');
                 $this->send($chatId, $menu, $markup);
 
                 return;
 
+            case 'sr_add_road':
+                if ($text === '/skip') {
+                    $this->send($chatId, 'A road name is needed. Send the road name, or /cancel.');
+
+                    return;
+                }
+                $put(['step' => 'sr_add_area', 'group' => $state['group'], 'road' => mb_strimwidth($text, 0, 120)]);
+                $this->send($chatId, "📍 <b>Which area?</b> (e.g. <i>Umhlanga</i>)\nOr /skip for none.");
+
+                return;
+
             case 'sr_add_area':
-                $put(['step' => 'sr_add_status', 'group' => $state['group'], 'area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 255)]);
-                $this->send($chatId, '<b>What is the status?</b>', ['inline_keyboard' => [[
-                    ['text' => '🟢 All clear', 'callback_data' => 'sr:as:ok'],
-                    ['text' => '🟠 Caution', 'callback_data' => 'sr:as:warning'],
-                    ['text' => '🔴 Avoid', 'callback_data' => 'sr:as:danger'],
-                ]]]);
+                $put(['step' => 'sr_add_status', 'group' => $state['group'], 'road' => $state['road'], 'area' => $text === '/skip' ? null : mb_strimwidth($text, 0, 120)]);
+                $this->send($chatId, '<b>What is the status?</b>', $this->statusButtons());
 
                 return;
 
             case 'sr_add_status':
-                $this->send($chatId, 'Tap one of the status buttons above (🟢 🟠 🔴), or /cancel.');
-
-                return;
-
-            case 'sr_add_text':
-                $group = ReportGroup::find($state['group']);
-                if (! $group) {
-                    $forget();
-                    $this->send($chatId, 'That section no longer exists. Send /sitrep to start again.');
+                // Typing a status word works as well as tapping the buttons.
+                $status = $this->statusWord($text);
+                if (! $status) {
+                    $this->send($chatId, 'Tap one of the status buttons above (🟢 🟠 🔴), or type green / orange / red. /cancel to stop.');
 
                     return;
                 }
-                $lines = $text === '/skip' ? 'No reported issues' : $this->bulletText($text);
-                if ($lines === '') {
-                    $this->send($chatId, 'Send the text for this entry, or /skip for “No reported issues”.');
-
-                    return;
-                }
-                $entry = $group->entries()->create([
-                    'area' => $state['area'], 'status' => $state['status'], 'lines' => $lines,
-                    'sort' => (int) $group->entries()->max('sort') + 1,
-                ]);
-                $forget();
-                $this->sendEntry($chatId, $entry->load('group'), "✅ Added.\n\n");
+                $this->createRoad($chatId, $state, $status);
 
                 return;
+        }
+    }
+
+    private function createRoad(string $chatId, array $state, string $status, ?int $editMessageId = null): void
+    {
+        $group = ReportGroup::find($state['group']);
+        Cache::forget($this->stateKey($chatId));
+
+        if (! $group) {
+            $this->send($chatId, 'That section no longer exists. Send /sitrep to start again.');
+
+            return;
+        }
+
+        $entry = $group->entries()->create(['road' => $state['road'], 'area' => $state['area'], 'status' => $status])->load('group');
+
+        if ($editMessageId) {
+            $this->api('editMessageText', [
+                'chat_id' => $chatId, 'message_id' => $editMessageId, 'parse_mode' => 'HTML',
+                'text' => "✅ Added.\n\n".$this->entryCard($entry), 'reply_markup' => $this->entryButtons($entry),
+            ]);
+        } else {
+            $this->sendEntry($chatId, $entry, "✅ Added.\n\n");
         }
     }
 
@@ -979,7 +1003,7 @@ TXT;
         $entry = $needsEntry ? ReportEntry::with('group')->find($id) : null;
 
         if ($needsEntry && ! $entry) {
-            $menu('That entry no longer exists.');
+            $menu('That road no longer exists.');
 
             return 'Not found';
         }
@@ -1011,19 +1035,19 @@ TXT;
 
             case 't':
                 $put(['step' => 'sr_text', 'id' => $entry->id]);
-                $edit($this->entryCard($entry)."\n\n✏️ Send the <b>new text</b> — one bullet per line, or separate bullets with |.\n/cancel to stop.");
+                $edit($this->entryCard($entry)."\n\n✏️ Send the <b>new road name</b>. /cancel to stop.");
 
-                return 'Send the new text';
+                return 'Send the road name';
 
             case 'ar':
                 $put(['step' => 'sr_area', 'id' => $entry->id]);
-                $edit($this->entryCard($entry)."\n\n📍 Send the <b>new area label</b>, or /skip to clear it.\n/cancel to stop.");
+                $edit($this->entryCard($entry)."\n\n📍 Send the <b>new area</b>, or /skip to clear it.\n/cancel to stop.");
 
-                return 'Send the new area';
+                return 'Send the area';
 
             case 'd':
-                $edit('🗑 Delete this entry?'."\n\n".$this->entryCard($entry), ['inline_keyboard' => [[
-                    ['text' => 'Yes, delete', 'callback_data' => "sr:dy:{$entry->id}"],
+                $edit('🗑 Remove this road?'."\n\n".$this->entryCard($entry), ['inline_keyboard' => [[
+                    ['text' => 'Yes, remove', 'callback_data' => "sr:dy:{$entry->id}"],
                     ['text' => 'Keep it', 'callback_data' => "sr:e:{$entry->id}"],
                 ]]]);
 
@@ -1031,9 +1055,9 @@ TXT;
 
             case 'dy':
                 $entry->delete();
-                $menu('🗑 Entry deleted.');
+                $menu('🗑 Removed '.e($entry->road).'.');
 
-                return 'Deleted';
+                return 'Removed';
 
             case 'a':
                 $group = ReportGroup::find($id);
@@ -1042,21 +1066,19 @@ TXT;
 
                     return 'Not found';
                 }
-                $put(['step' => 'sr_add_area', 'group' => $group->id]);
-                $edit('➕ New entry in <b>'.e($group->title)."</b>\n\n📍 Send the <b>area name</b> (e.g. <i>Northern Area</i>), or /skip for none.\n/cancel to stop.");
+                $put(['step' => 'sr_add_road', 'group' => $group->id]);
+                $edit('➕ New road in <b>'.e($group->title)."</b>\n\n🛣 Send the <b>road name</b> (e.g. <i>Umhlanga Rocks Drive</i>).\n/cancel to stop.");
 
-                return 'Send the area name';
+                return 'Send the road name';
 
             case 'as':
                 $state = Cache::get($this->stateKey($chatId));
                 if (! $state || $state['step'] !== 'sr_add_status' || ! in_array($p[2] ?? '', ['ok', 'warning', 'danger'], true)) {
                     return 'Start again with /sitrep';
                 }
-                $put(['step' => 'sr_add_text', 'group' => $state['group'], 'area' => $state['area'], 'status' => $p[2]]);
-                $edit('Status: '.$this->entryIcon($p[2]).' '.ReportEntry::STATUSES[$p[2]]);
-                $this->send($chatId, "📝 Send the <b>text</b> — one bullet per line, or separate bullets with |.\nOr /skip for “No reported issues”.");
+                $this->createRoad($chatId, $state, $p[2], $messageId);
 
-                return 'Send the text';
+                return 'Added';
 
             case 'g':
                 $put(['step' => 'sr_group']);
@@ -1065,38 +1087,84 @@ TXT;
                 return 'Send the title';
 
             case 'r':
-                $edit("🟢 Reset <b>every</b> entry to <b>All clear</b> with the text “No reported issues”?\nArea labels are kept.", ['inline_keyboard' => [[
-                    ['text' => 'Yes, reset all', 'callback_data' => 'sr:ry'],
+                $edit('🧹 Remove <b>every</b> road from the situation report?'."\nEvery section will then show “No reported issues”. Sections themselves are kept.", ['inline_keyboard' => [[
+                    ['text' => 'Yes, remove all', 'callback_data' => 'sr:ry'],
                     ['text' => 'Cancel', 'callback_data' => 'sr:m'],
                 ]]]);
 
                 return 'Confirm';
 
             case 'ry':
-                ReportEntry::query()->each(fn (ReportEntry $e) => $e->update(['status' => 'ok', 'lines' => 'No reported issues']));
-                $menu('🟢 All entries reset to all clear.');
+                ReportEntry::query()->each(fn (ReportEntry $e) => $e->delete());
+                $menu('🧹 All roads removed — everything shows “No reported issues”.');
 
-                return 'Reset';
+                return 'Cleared';
         }
 
         return 'Unknown action';
     }
 
-    private function sit(string $chatId, string $args): void
+    /** /road Name | Area | status | section — quick add. Status: green/orange/red (default orange); section defaults to the first. */
+    private function quickRoad(string $chatId, string $args): void
     {
-        if (! preg_match('/^(\d+)\s+(ok|warning|danger)(?:\s+(.+))?$/is', $args, $m) || ! ($entry = ReportEntry::find((int) $m[1]))) {
-            $this->send($chatId, "Usage: <code>/sit ID ok|warning|danger [text]</code>\nUse /sitrep to see entry IDs. Separate several bullet points with |");
+        [$road, $area, $statusWord, $sectionWord] = $this->split($args, 4);
+
+        if (! $road) {
+            $this->send($chatId, "Usage: <code>/road Road name | Area | status | section</code>\nAll but the name are optional. Status: <b>green</b>, <b>orange</b> (default) or <b>red</b>.\nOr send /sitrep for the step-by-step screens.");
 
             return;
         }
 
-        $entry->status = strtolower($m[2]);
-        if (! empty($m[3])) {
-            $entry->lines = $this->bulletText($m[3]);
-        }
-        $entry->save();
+        $status = $statusWord ? $this->statusWord($statusWord) : 'warning';
+        if (! $status) {
+            $this->send($chatId, '“'.e($statusWord).'” isn’t a status. Use green, orange or red (or ok, caution, avoid).');
 
-        $this->send($chatId, '✅ Updated.'."\n".$this->entryCard($entry->fresh('group')));
+            return;
+        }
+
+        $groups = ReportGroup::orderBy('sort')->orderBy('id')->get();
+        $group = $sectionWord
+            ? $groups->first(fn (ReportGroup $g) => stripos($g->title, $sectionWord) !== false)
+            : $groups->first();
+        if (! $group) {
+            $this->send($chatId, $sectionWord ? 'No section matching “'.e($sectionWord).'”. Send /sitrep to see them.' : 'There are no sections yet. Send /sitrep and tap “➕ New section”.');
+
+            return;
+        }
+
+        $entry = $group->entries()->create(['road' => mb_strimwidth($road, 0, 120), 'area' => $area ? mb_strimwidth($area, 0, 120) : null, 'status' => $status])->load('group');
+        $this->sendEntry($chatId, $entry, "✅ Added.\n\n");
+    }
+
+    /** /sit ID status — change a road's status. */
+    private function sit(string $chatId, string $args): void
+    {
+        [$id, $word] = array_pad(preg_split('/\s+/', trim($args), 2), 2, null);
+        $status = $this->statusWord($word);
+
+        if (! ctype_digit((string) $id) || ! $status || ! ($entry = ReportEntry::with('group')->find((int) $id))) {
+            $this->send($chatId, "Usage: <code>/sit ID green|orange|red</code>\nThe ID is shown on each road (see /sitrep).");
+
+            return;
+        }
+
+        $entry->update(['status' => $status]);
+        $this->sendEntry($chatId, $entry->fresh('group'), "✅ Updated.\n\n");
+    }
+
+    /** /rmroad ID — remove a road. */
+    private function removeRoad(string $chatId, string $args): void
+    {
+        $entry = ctype_digit(trim($args)) ? ReportEntry::find((int) $args) : null;
+        if (! $entry) {
+            $this->send($chatId, 'Usage: <code>/rmroad ID</code> — the ID is shown on each road (see /sitrep).');
+
+            return;
+        }
+
+        $label = $entry->label();
+        $entry->delete();
+        $this->send($chatId, '🗑 Removed <b>'.e($label).'</b>.');
     }
 
     // ---------------------------------------------------------------- callbacks
