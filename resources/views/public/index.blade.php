@@ -61,6 +61,9 @@
         <h2 class="section-label" id="wx-h">Current Weather Alert Level</h2>
         <span class="level-pill"><i></i>{{ $weatherCurrent?->name }}</span>
         <h3>{{ $weatherCurrent?->description }}</h3>
+        @foreach ($weatherUpcoming as $u)
+          <p class="wx-next"><a href="{{ $u->weatherUrl() }}"><b>{{ $u->weatherLevelLabel() }}</b> &mdash; {{ $u->title }}</a></p>
+        @endforeach
       </section>
 
       <aside class="card legend small sec collapsed" data-key="wguide" data-default="collapsed" aria-label="Weather alert level guide">

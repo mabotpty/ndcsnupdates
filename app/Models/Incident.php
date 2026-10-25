@@ -49,6 +49,34 @@ class Incident extends Model
         return $this->weather_to && $this->weather_to->isPast() ? 'expired' : 'active';
     }
 
+    /** "Level 6", or "Level 6 at 14:00" while the warning is still in the future (date added if not today). */
+    public function weatherLevelLabel(): string
+    {
+        $label = 'Level '.(int) $this->weather_level;
+
+        if ($this->weatherPhase() !== 'upcoming') {
+            return $label;
+        }
+
+        return $label.' at '.$this->weather_from->format($this->weather_from->isToday() ? 'H:i' : 'D j M, H:i');
+    }
+
+    /** Unresolved warnings whose window has started and not yet ended: these set the current level. */
+    public function scopeWeatherInEffect(Builder $query): Builder
+    {
+        return $query->weather()->where('status', '!=', 'resolved')
+            ->where('weather_from', '<=', now())
+            ->where('weather_to', '>', now());
+    }
+
+    /** Unresolved warnings that start later, soonest first. */
+    public function scopeWeatherUpcoming(Builder $query): Builder
+    {
+        return $query->weather()->where('status', '!=', 'resolved')
+            ->where('weather_from', '>', now())
+            ->orderBy('weather_from');
+    }
+
     protected $fillable = ['title', 'body', 'status', 'published_at', 'resolved_at', 'source', 'created_by', 'media', 'type', 'weather_kind', 'weather_level', 'area', 'weather_from', 'weather_to', 'narrative'];
 
     protected function casts(): array

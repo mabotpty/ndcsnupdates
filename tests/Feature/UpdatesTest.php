@@ -454,7 +454,7 @@ class UpdatesTest extends TestCase
 
     public function test_weather_shows_under_warnings_with_level_and_a_details_page(): void
     {
-        $w = $this->weather();
+        $w = $this->weather(['weather_from' => now()->subHour()]);
         $this->get('/')->assertOk()
             ->assertSee('Current Weather Alert Level')->assertSee('Orange - Level 6')
             ->assertSee('Heavy rain expected')->assertSee('Level 6')->assertSee('Weather')
@@ -468,10 +468,35 @@ class UpdatesTest extends TestCase
         $this->get('/weather/'.Incident::where('type', 'incident')->first()->id)->assertNotFound();
 
         // Overall level = highest unresolved; none = level 0; resolved warnings don't count.
-        $this->weather(['title' => 'Gale', 'weather_level' => 9]);
+        $this->weather(['title' => 'Gale', 'weather_level' => 9, 'weather_from' => now()->subMinute()]);
         $this->get('/')->assertSee('Orange - Level 9');
         Incident::weather()->update(['status' => 'resolved', 'resolved_at' => now()]);
         $this->get('/')->assertSee('No weather warnings');
+    }
+
+    private function currentWeatherPill(): string
+    {
+        preg_match('/id="wx-h">.*?<span class="level-pill"><i><\/i>([^<]*)<\/span>/s', $this->get('/')->getContent(), $m);
+
+        return trim($m[1] ?? '');
+    }
+
+    public function test_weather_level_shows_the_current_state_and_future_warnings_as_level_at_time(): void
+    {
+        $this->travelTo(now()->setTime(8, 0));
+        $this->weather(['title' => 'Showers', 'weather_level' => 3, 'weather_from' => now()->subHour(), 'weather_to' => now()->addHours(6)]);
+        $gale = $this->weather(['title' => 'Gale', 'weather_level' => 8, 'weather_from' => now()->setTime(14, 0), 'weather_to' => now()->setTime(20, 0)]);
+
+        // Now: the current level is the one in effect (3), the later one is listed as "Level 8 at 14:00".
+        $this->get('/')->assertOk()->assertSee('Level 8 at 14:00');
+        $this->assertSame('Yellow - Level 3', $this->currentWeatherPill());
+        $this->get($gale->weatherUrl())->assertSee('Level 8 at 14:00');
+
+        // Once its start time passes, it becomes the current level on its own.
+        $this->travelTo(now()->setTime(14, 5));
+        $this->get('/')->assertDontSee('Level 8 at');
+        $this->assertSame('Orange - Level 8', $this->currentWeatherPill());
+        $this->get($gale->weatherUrl())->assertDontSee('Level 8 at');
     }
 
     public function test_site_is_an_installable_app(): void

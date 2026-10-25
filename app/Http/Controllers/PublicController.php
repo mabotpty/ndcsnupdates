@@ -19,14 +19,16 @@ class PublicController extends Controller
         $current = AlertLevel::find((int) Setting::get('alert_level', '0')) ?? AlertLevel::orderBy('level')->first();
 
         $weatherLevels = WeatherLevel::orderBy('level')->get();
-        // The overall weather level is the highest level among warnings that haven't been resolved.
-        $weatherNow = (int) Incident::weather()->where('status', '!=', 'resolved')->max('weather_level');
+        // The current weather level is the highest among warnings in effect right now; later warnings
+        // are listed as "Level x at time" and take over automatically once their start time passes.
+        $weatherNow = (int) Incident::weatherInEffect()->max('weather_level');
 
         return view('public.index', [
             'current' => $current,
             'levels' => AlertLevel::orderBy('level')->get(),
             'weatherLevels' => $weatherLevels,
             'weatherCurrent' => $weatherLevels->firstWhere('level', $weatherNow) ?? $weatherLevels->first(),
+            'weatherUpcoming' => Incident::weatherUpcoming()->get(),
             'groups' => ReportGroup::with('entries')->orderBy('sort')->orderBy('id')->get(),
             'warnings' => Incident::where('status', 'warning')->newest()->get(),
             'monitoring' => Incident::where('status', 'monitoring')->newest()->get(),

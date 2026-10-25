@@ -9,7 +9,7 @@
   <h2 class="wx-title">{{ $w->title }}</h2>
 
   <div class="wx-levelbox">
-    <span class="level-pill"><i></i>Level {{ $w->weather_level }}</span>
+    <span class="level-pill"><i></i>{{ $w->weatherLevelLabel() }}</span>
     @if ($level)<p><b>{{ $level->name }}</b> &mdash; {{ $level->description }}</p>@endif
   </div>
 
