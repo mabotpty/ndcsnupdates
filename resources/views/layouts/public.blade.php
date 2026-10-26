@@ -28,6 +28,15 @@
 
   <link rel="stylesheet" href="{{ asset('css/site.css') }}?v={{ filemtime(public_path('css/site.css')) }}">
   <noscript><meta http-equiv="refresh" content="60"></noscript>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-R44LFTXBKX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-R44LFTXBKX');
+  </script>
 </head>
 <body>
   <header class="site-header">
