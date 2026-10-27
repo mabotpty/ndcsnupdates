@@ -8,6 +8,19 @@
   <meta name="description" content="Live safety status updates for North Durban and surrounds, from the North Durban Community Support Network.">
   @include('layouts._icons')
 
+  {{-- Link previews (WhatsApp, Telegram, Facebook, X...): a large 1200x630 image, not the favicon --}}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="NDCSN Community Updates">
+  <meta property="og:title" content="{{ $title ?? 'North Durban and Surrounds Safety Status Updates' }} - NDCSN">
+  <meta property="og:description" content="Live safety status updates for North Durban and surrounds, from the North Durban Community Support Network.">
+  <meta property="og:url" content="{{ url()->current() }}">
+  <meta property="og:image" content="{{ asset('icons/share.jpg') }}?v={{ filemtime(public_path('icons/share.jpg')) }}">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="NDCSN Community Updates logo">
+  <meta name="twitter:card" content="summary_large_image">
+
   {{-- Installable app (PWA) --}}
   {{-- Some Android browsers (Samsung Internet etc.) package installs with their own, outdated Android wrapper, which
        Google Play Protect flags as an "unsafe app". Only offer installation to browsers that don't do that: those
