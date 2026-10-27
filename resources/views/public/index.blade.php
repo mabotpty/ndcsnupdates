@@ -1,6 +1,7 @@
 @extends('layouts.public')
 
 @section('content')
+  <div class="dock">
   @if ($telegramUrl)
     <div class="card join">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.9 8.2-2 9.4c-.15.67-.54.83-1.1.52l-3-2.2-1.45 1.4c-.16.16-.3.3-.6.3l.2-3.05 5.55-5c.24-.2-.05-.33-.38-.13L7.2 13.5l-2.95-.92c-.64-.2-.65-.64.13-.95l11.5-4.43c.53-.2 1 .13.82.95z"/></svg>
@@ -26,13 +27,6 @@
       <p data-os="desktop"><b>Computer:</b> in Chrome or Edge click the <b>install</b> icon at the right of the address bar, or open the browser menu and choose <b>Install NDCSN Updates</b>.</p>
     </div>
   </div>
-
-  <div class="notice" role="note">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-    <div>
-      <p><strong>All information is acquired from local WhatsApp traffic and security groups, Ward Councillors, SAPS, Metro, eThekwini or other sources.</strong></p>
-      <p>Whilst all efforts are made to ensure it is verified, accurate, and up-to-date, we cannot guarantee 100% accuracy and accept no liability for information provided.</p>
-    </div>
   </div>
 
   <div class="top-row">
@@ -144,5 +138,13 @@
         @endforelse
       </div>
     </section>
+  </div>
+
+  <div class="notice" role="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <div>
+      <p><strong>All information is acquired from local WhatsApp traffic and security groups, Ward Councillors, SAPS, Metro, eThekwini, SA Weather Service or other sources.</strong></p>
+      <p>Whilst all efforts are made to ensure it is verified, accurate, and up-to-date, we cannot guarantee 100% accuracy and accept no liability for information provided.</p>
+    </div>
   </div>
 @endsection

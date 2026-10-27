@@ -125,7 +125,7 @@
     (function () {
       var mobile = window.matchMedia('(max-width: 760px)');
 
-      // Collapsible sections (only active on phones; always open on larger screens).
+      // Collapsible sections (phones: all of them; larger screens: just the level guides).
       // The choice is remembered for the visit, including across the live refresh below.
       function store(key, val) { try { val === undefined ? sessionStorage.removeItem(key) : sessionStorage.setItem(key, val); } catch (e) {} }
       function load(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
@@ -133,7 +133,9 @@
       function applySections() {
         document.querySelectorAll('.sec').forEach(function (s) {
           var saved = load('sec:' + s.dataset.key);
-          var collapsed = saved === null ? s.dataset.default === 'collapsed' : saved === '1';
+          // On a computer the level guides start open (they can still be collapsed); on a phone they start closed.
+          var dflt = s.dataset.default === 'collapsed' && (mobile.matches || !s.classList.contains('legend'));
+          var collapsed = saved === null ? dflt : saved === '1';
           s.classList.toggle('collapsed', collapsed);
           var t = s.querySelector('.toggle');
           if (t) t.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
@@ -142,9 +144,8 @@
 
       document.addEventListener('click', function (e) {
         var t = e.target.closest ? e.target.closest('.toggle') : null;
-        if (!t || !mobile.matches) return;
-        var s = t.closest('.sec');
-        if (!s) return;
+        var s = t ? t.closest('.sec') : null;
+        if (!s || !(mobile.matches || s.classList.contains('legend'))) return;
         var collapsed = !s.classList.contains('collapsed');
         s.classList.toggle('collapsed', collapsed);
         t.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
