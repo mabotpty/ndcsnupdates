@@ -521,10 +521,16 @@ main .wrap, .site-footer .wrap { padding-left: max(20px, env(safe-area-inset-lef
 
   /* guides collapse on desktop too */
   .legend .section-label button.toggle { width: 100%; cursor: pointer; justify-content: space-between; }
-  .legend .chev { display: block; }
-  .legend:not(.collapsed) .chev { transform: rotate(180deg); }
   .legend.collapsed .sec-body { display: none; }
   .legend.small.collapsed .section-label { margin-bottom: 0; }
 
   .notice { margin: 28px 0 0; }
 }
+
+/* level guides: a "+ expand" / "- collapse" label instead of an arrow */
+.legend .chev { display: none; }
+.legend .section-label button.toggle::after {
+  content: "+ expand"; margin-left: auto; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: none; color: var(--brand-2);
+}
+.legend:not(.collapsed) .section-label button.toggle::after { content: "- collapse"; }
+.legend .section-label button.toggle { justify-content: space-between; }
