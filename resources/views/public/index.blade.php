@@ -17,7 +17,7 @@
     <img class="app-icon" src="{{ url('/icons/icon-192.png') }}?v=2" alt="" width="34" height="34">
     <div class="join-text">
       <strong>Install it as an app</strong>
-      <span class="sub">One tap from your home screen, the last update even when you're offline, and alerts on your phone.</span>
+      <span class="sub">To get quick access and alerts on your device</span>
     </div>
     <button type="button" class="btn-tg btn-app" data-install><span class="long">Install app</span><span class="short">Install</span></button>
     <div class="install-help" id="install-help" hidden>
