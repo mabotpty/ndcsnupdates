@@ -532,7 +532,7 @@ main .wrap, .site-footer .wrap { padding-left: max(20px, env(safe-area-inset-lef
   .legend.collapsed .sec-body { display: none; }
   .legend.small.collapsed .section-label { margin-bottom: 0; }
 
-  .notice { margin: 28px 0 0; }
+  .notice { margin: 28px 0 24px; }
 }
 
 /* level guides: a "+ expand" / "- collapse" label instead of an arrow */
