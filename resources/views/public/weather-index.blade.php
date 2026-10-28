@@ -8,8 +8,6 @@
     </div>
   </div>
 
-  <span class="col-head ch-primary">Active weather alerts @if ($warnings->count())<span class="count">{{ $warnings->count() }}</span>@endif</span>
-
   <div class="wx-list">
     @forelse ($warnings as $w)
       @include('public._weather_detail', ['w' => $w, 'level' => $weatherLevels->firstWhere('level', (int) $w->weather_level)])

@@ -86,7 +86,7 @@
 
   <footer class="site-footer">
     <div class="wrap">
-      <span>&copy; {{ date('Y') }} North Durban Community Support Network</span>
+      <span>&copy; {{ date('Y') }} <a href="https://ndcsn.org.za" target="_blank" rel="noopener noreferrer">North Durban Community Support Network</a></span>
       <span>Emergency? Contact SAPS, Metro Police or your security provider directly.</span>
     </div>
   </footer>
@@ -152,6 +152,16 @@
       });
 
       applySections();
+
+      // The sticky bottom bar steps aside once the footer scrolls into view.
+      var footer = document.querySelector('.site-footer');
+      function dockCheck() {
+        if (!footer) return;
+        document.documentElement.classList.toggle('dock-off', footer.getBoundingClientRect().top < window.innerHeight - 8);
+      }
+      window.addEventListener('scroll', dockCheck, { passive: true });
+      window.addEventListener('resize', dockCheck);
+      dockCheck();
 
       // Refresh the live content in place (no full page flash): every minute, and straight away
       // when the app comes back to the foreground or the connection returns.
