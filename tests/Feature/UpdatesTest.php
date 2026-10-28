@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Incident;
+use App\Models\NewsItem;
 use App\Models\Setting;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -24,7 +26,30 @@ class UpdatesTest extends TestCase
     public function test_public_pages_render_with_seeded_content(): void
     {
         $this->get('/')->assertOk()->assertSee('Yellow - Level 1')->assertSee('March and March Update');
-        $this->get('/news')->assertOk()->assertSee('HAPPENING NOW IN DURBAN');
+        $this->get('/news')->assertOk()->assertSee('Latest News');
+    }
+
+    public function test_latest_news_keeps_14_days_has_the_note_and_a_whatsapp_fallback(): void
+    {
+        NewsItem::query()->delete();
+
+        // Nothing there: the message, with the WhatsApp text (a link once the number is set in the admin).
+        $this->get('/news')->assertOk()
+            ->assertSee('Please note:')->assertSee('only important news/updates regarding safety and security for the last 14 days are posted here')
+            ->assertSee('No relevant information available at this time.')->assertSee('send us a WhatsApp')->assertDontSee('wa.me');
+        Setting::put('whatsapp_url', 'https://wa.me/27820000000');
+        $this->get('/news')->assertSee('<a href="https://wa.me/27820000000"', false);
+
+        // Posts older than 14 days are hidden straight away and removed by the nightly prune.
+        NewsItem::create(['title' => 'Fresh post', 'published_at' => now()->subDays(13)]);
+        NewsItem::create(['title' => 'Stale post', 'published_at' => now()->subDays(15)]);
+        $this->get('/news')->assertSee('Fresh post')->assertDontSee('Stale post')->assertDontSee('No relevant information');
+        $this->artisan('news:prune')->expectsOutput('Removed 1 news post older than 14 days.')->assertSuccessful();
+        $this->assertDatabaseMissing('news_items', ['title' => 'Stale post']);
+        $this->assertDatabaseHas('news_items', ['title' => 'Fresh post']);
+
+        $event = collect(app(Schedule::class)->events())->first(fn ($e) => str_contains($e->command, 'news:prune'));
+        $this->assertSame('10 3 * * *', $event->expression);
     }
 
     public function test_newest_incidents_are_listed_first(): void
@@ -772,7 +797,7 @@ class UpdatesTest extends TestCase
         config(['services.webpush.public' => 'BTESTPUBLICKEY', 'services.webpush.private' => 'x']);
         $this->get('/')->assertSee('<meta name="vapid-public-key" content="BTESTPUBLICKEY">', false)
             ->assertSee('id="notify-btn"', false)->assertSee('New safety warnings and monitoring items')
-            ->assertSee('Weather warnings')->assertSee('SAPS releases')->assertSee('resolved alerts');
+            ->assertSee('Weather warnings')->assertSee('Latest news')->assertSee('resolved alerts');
 
         // Service worker shows the notification and opens the right page on tap.
         $sw = file_get_contents(public_path('sw.js'));
@@ -1001,7 +1026,7 @@ class UpdatesTest extends TestCase
             ->assertDontSee('updates automatically')
             ->assertDontSee('class="eyebrow"', false)
             ->assertDontSee('Latest releases from the SAPS can be found here')
-            ->assertSeeInOrder(['Safety Status', 'Weather Alerts', 'SAPS Releases']);
+            ->assertSeeInOrder(['Safety Status', 'Weather Alerts', 'Latest News']);
         $this->assertSame(1, substr_count($home->getContent(), 'aria-current="page"'));
         $this->assertMatchesRegularExpression('#aria-current="page" >Safety Status#', $home->getContent());
 
@@ -1025,7 +1050,7 @@ class UpdatesTest extends TestCase
 
         // Other pages highlight their own tab.
         $news = $this->get('/news')->assertOk();
-        $this->assertMatchesRegularExpression('#aria-current="page" >SAPS Releases#', $news->getContent());
+        $this->assertMatchesRegularExpression('#aria-current="page" >Latest News#', $news->getContent());
     }
 
     public function test_newest_warning_first_with_weather_mixed_in(): void

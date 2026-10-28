@@ -93,6 +93,11 @@
             <input id="tg" type="url" name="telegram_group_url" value="{{ $telegramUrl }}" placeholder="https://t.me/...">
             <p class="hint">Shown as a "Join on Telegram" banner on the home page. Leave empty to hide it.</p>
           </div>
+          <div class="field">
+            <label for="wa">NDCSN WhatsApp link</label>
+            <input id="wa" type="url" name="whatsapp_url" value="{{ $whatsappUrl }}" placeholder="https://wa.me/27...">
+            <p class="hint">Used in the "No relevant information available" message on the Latest News page ("send us a WhatsApp"). Format: https://wa.me/ followed by the number with country code, no + or spaces.</p>
+          </div>
           <button class="btn btn-primary" type="submit">Save</button>
         </form>
       </div>

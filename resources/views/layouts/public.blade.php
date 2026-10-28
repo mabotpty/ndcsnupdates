@@ -72,7 +72,7 @@
           @php($activeWeather = \App\Models\Incident::weather()->where('status', '!=', 'resolved')->count())
           <a href="{{ route('home') }}" @if(request()->routeIs('home')) aria-current="page" @endif>Safety Status</a>
           <a href="{{ route('weather.index') }}" @if(request()->routeIs('weather.index', 'weather')) aria-current="page" @endif>Weather Alerts @if ($activeWeather)<span class="nav-count">{{ $activeWeather }}</span>@endif</a>
-          <a href="{{ route('news') }}" @if(request()->routeIs('news')) aria-current="page" @endif>SAPS Releases</a>
+          <a href="{{ route('news') }}" @if(request()->routeIs('news')) aria-current="page" @endif>Latest News</a>
         </nav>
       </div>
     </div>

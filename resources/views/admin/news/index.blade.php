@@ -1,8 +1,8 @@
-@extends('layouts.admin', ['title' => 'SAPS Releases'])
+@extends('layouts.admin', ['title' => 'Latest News'])
 
 @section('content')
   <div class="a-head">
-    <h1>SAPS Releases</h1>
+    <h1>Latest News</h1>
     <a class="btn btn-primary" href="{{ route('admin.news.create') }}">+ Add release</a>
   </div>
 

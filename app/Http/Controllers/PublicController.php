@@ -70,7 +70,8 @@ class PublicController extends Controller
     public function news(): View
     {
         return view('public.news', [
-            'items' => NewsItem::orderByDesc('published_at')->orderByDesc('id')->get(),
+            'items' => NewsItem::where('published_at', '>=', now()->subDays(NewsItem::KEEP_DAYS))->orderByDesc('published_at')->orderByDesc('id')->get(),
+            'whatsappUrl' => Setting::get('whatsapp_url') ?: null,
             'updatedAt' => $this->updatedAt(),
         ]);
     }

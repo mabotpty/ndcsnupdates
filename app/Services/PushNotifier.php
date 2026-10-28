@@ -22,7 +22,7 @@ class PushNotifier
         'warnings' => '⚠️ New safety warnings and monitoring items',
         'weather' => '⛈ Weather warnings',
         'level' => '🚦 Safety alert level changes',
-        'news' => '📰 SAPS releases',
+        'news' => '📰 Latest news',
         'resolved' => '✅ All clear / resolved alerts',
     ];
 

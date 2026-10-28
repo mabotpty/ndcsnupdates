@@ -1,4 +1,4 @@
-@extends('layouts.public', ['title' => 'SAPS Releases', 'subtitle' => 'Latest Releases - North Durban and Surrounds Safety Status Updates'])
+@extends('layouts.public', ['title' => 'Latest News', 'subtitle' => 'Latest News - North Durban and Surrounds Safety Status Updates'])
 
 @section('content')
   <div class="page-links">
@@ -9,10 +9,10 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
     <div>
       <p>All information is provided as is from the source linked in the article. Whilst all efforts are made to ensure it is verified, accurate, and up-to-date, we cannot guarantee 100% accuracy and accept no liability for information provided.</p>
+      <p><strong>Please note:</strong> only important news/updates regarding safety and security for the last 14 days are posted here.</p>
     </div>
   </div>
 
-  <span class="col-head ch-primary">Latest News</span>
   <div class="news-list">
     @forelse ($items as $n)
       <article class="card news-item">
@@ -26,7 +26,7 @@
         @if ($n->body)
           @if (mb_strlen($n->body) > 360)
             <details>
-              <summary><span class="more-closed">{{ \Illuminate\Support\Str::limit($n->body, 300) }}<br>Read the full release &darr;</span><span class="more-open">Show less &uarr;</span></summary>
+              <summary><span class="more-closed"><span class="excerpt">{{ \Illuminate\Support\Str::limit($n->body, 300) }}</span><span class="btn-more">Read the full release &darr;</span></span><span class="more-open"><span class="btn-more">Show less &uarr;</span></span></summary>
               <p>{!! nl2br(e($n->body)) !!}</p>
             </details>
           @else
@@ -35,7 +35,10 @@
         @endif
       </article>
     @empty
-      <div class="empty">No releases yet</div>
+      <div class="empty news-empty">
+        No relevant information available at this time. If you feel there is something that should be here,
+        @if ($whatsappUrl)<a href="{{ $whatsappUrl }}" target="_blank" rel="noopener noreferrer">send us a WhatsApp</a>@else send us a WhatsApp @endif.
+      </div>
     @endforelse
   </div>
 @endsection
