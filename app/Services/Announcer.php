@@ -90,7 +90,7 @@ class Announcer
     public function newsAdded(NewsItem $n): void
     {
         $this->post($this->newsMessages($n));
-        $this->push('news', '📰 New SAPS release', $n->title, url('/news'), null, 'news-'.$n->id);
+        $this->push('news', '📰 Latest news', $n->title, url('/news'), null, 'news-'.$n->id);
     }
 
     /** Browser/phone push for subscribers who chose this category. */
@@ -106,14 +106,14 @@ class Announcer
      */
     public function newsMessages(NewsItem $n): array
     {
-        // Alert type, title, the whole release, its source, then our website.
-        $head = "📰 <b>SAPS RELEASE</b>\n<b>".e($n->title).'</b>';
+        // Title, date, the whole text, its source, then the main news page.
+        $head = '📰 <b>'.e($n->title)."</b>\n🗓 <i>".$n->published_at->format('l j F Y, H:i').'</i>';
 
         $tail = '';
         if ($n->source_url && preg_match('#^https?://#i', $n->source_url)) {
-            $tail .= "\n\nSource: ".e($n->source_url);
+            $tail .= "\n\n🔗 Source: ".e($n->source_url);
         }
-        $tail .= "\n\nNDCSN Updates: ".e(url('/news'));
+        $tail .= "\n\n🌐 All Latest News: ".e(url('/news'));
 
         return $this->messages($head, trim((string) $n->body), $tail);
     }

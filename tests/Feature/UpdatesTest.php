@@ -346,8 +346,8 @@ class UpdatesTest extends TestCase
 
         // Shared to the group in the agreed format, with the whole text and links.
         $posts = implode("\n", $this->groupPosts());
-        $this->assertStringContainsString('SAPS RELEASE', $posts);
-        $this->assertStringContainsString('Source: https://www.facebook.com/share/p/abc/', $posts);
+        $this->assertStringContainsString('📰 <b>POLICE UPDATE ON THE MARCH</b>', $posts);
+        $this->assertStringContainsString('🔗 Source: https://www.facebook.com/share/p/abc/', $posts);
 
         // Everything skippable: link, time and text are optional.
         $this->say('/news');
@@ -371,9 +371,10 @@ class UpdatesTest extends TestCase
             'title' => 'Short release', 'source_url' => 'https://example.com/short', 'body' => "Line one & two.\n\nParagraph <b>two</b>.",
         ]);
         $short = $this->groupPosts();
+        $shortItem = NewsItem::where('title', 'Short release')->firstOrFail();
         $this->assertCount(1, $short);
         $this->assertSame(
-            "📰 <b>SAPS RELEASE</b>\n<b>Short release</b>\n\nLine one &amp; two.\n\nParagraph &lt;b&gt;two&lt;/b&gt;.\n\nSource: https://example.com/short\n\nNDCSN Updates: ".url('/news'),
+            "📰 <b>Short release</b>\n🗓 <i>".$shortItem->published_at->format('l j F Y, H:i')."</i>\n\nLine one &amp; two.\n\nParagraph &lt;b&gt;two&lt;/b&gt;.\n\n🔗 Source: https://example.com/short\n\n🌐 All Latest News: ".url('/news'),
             $short[0],
         );
 
@@ -384,9 +385,9 @@ class UpdatesTest extends TestCase
         $parts = collect($this->groupPosts())->filter(fn ($t) => ! str_contains($t, 'Short release'))->values();
         $this->assertGreaterThan(2, $parts->count());
         $parts->each(fn ($t) => $this->assertLessThanOrEqual(4096, mb_strlen($t)));
-        $this->assertStringStartsWith("📰 <b>SAPS RELEASE</b>\n<b>Long release</b>", $parts->first());
-        $this->assertStringEndsWith("Source: https://example.com/long\n\nNDCSN Updates: ".url('/news'), $parts->last());
-        $this->assertSame(0, $parts->slice(0, -1)->filter(fn ($t) => str_contains($t, 'NDCSN Updates:'))->count());
+        $this->assertStringStartsWith("📰 <b>Long release</b>\n🗓 <i>", $parts->first());
+        $this->assertStringEndsWith("🔗 Source: https://example.com/long\n\n🌐 All Latest News: ".url('/news'), $parts->last());
+        $this->assertSame(0, $parts->slice(0, -1)->filter(fn ($t) => str_contains($t, 'All Latest News:'))->count());
 
         $rebuilt = $parts->map(fn ($t) => html_entity_decode($t))->implode(' ');
         foreach (range(1, 180) as $n) {

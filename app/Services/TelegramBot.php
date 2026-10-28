@@ -235,7 +235,7 @@ class TelegramBot
 /list – open items, with Resolve / Delete buttons
 /resolve <i>ID</i> – mark an item resolved
 /edit <i>ID Title | details</i> – change an item's text
-/news – add a SAPS release step by step (or in one line: <i>/news Title | source link | text</i>)
+/news – add a news post step by step (or in one line: <i>/news Title | source link | text</i>)
 /sitrep – situation report: each road is its own item (🟢 all clear · 🟠 caution · 🔴 avoid). Tap a road to change its status or remove it, or add one
 /road <i>Road | Area | green/orange/red | section</i> – quick add (only the road name is needed)
 /sit <i>ID green|orange|red</i> – change a road's status
@@ -713,7 +713,7 @@ TXT;
 
     // --------------------------------------------------------------------- news
 
-    /** Step-by-step SAPS release: title → source link → release time → full text → /done. */
+    /** Step-by-step news post: title → source link → release time → full text → /done. */
     private function newsConversation(User $user, string $chatId, string $text, array $state): void
     {
         $put = fn (array $s) => Cache::put($this->stateKey($chatId), $s, now()->addMinutes(30));
@@ -790,7 +790,7 @@ TXT;
     {
         if ($args === '') {
             Cache::put($this->stateKey($chatId), ['step' => 'news_title'], now()->addMinutes(30));
-            $this->send($chatId, "📰 <b>New SAPS release</b>\n\nSend the <b>title</b>. /cancel to stop.\n\n<i>Tip: the one-line form also works: /news Title | source link | text</i>");
+            $this->send($chatId, "📰 <b>New news post</b>\n\nSend the <b>title</b>. /cancel to stop.\n\n<i>Tip: the one-line form also works: /news Title | source link | text</i>");
 
             return;
         }

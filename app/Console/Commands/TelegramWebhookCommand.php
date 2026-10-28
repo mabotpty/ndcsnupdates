@@ -40,7 +40,7 @@ class TelegramWebhookCommand extends Command
             ['command' => 'weather', 'description' => 'Post a weather warning'],
             ['command' => 'list', 'description' => 'Open items (resolve / delete)'],
             ['command' => 'sitrep', 'description' => 'Add or update situation report entries'],
-            ['command' => 'news', 'description' => 'Add a SAPS release'],
+            ['command' => 'news', 'description' => 'Add a news post'],
             ['command' => 'help', 'description' => 'All commands'],
         ]]);
 

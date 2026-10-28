@@ -12,7 +12,7 @@ class NewsRepostCommand extends Command
 {
     protected $signature = 'news:repost {id? : News item id; defaults to the latest release}';
 
-    protected $description = 'Re-send a SAPS release to the Telegram group in the current format';
+    protected $description = 'Re-send a news post to the Telegram group in the current format';
 
     public function handle(Announcer $announcer, TelegramBot $bot): int
     {
